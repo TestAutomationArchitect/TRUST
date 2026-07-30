@@ -129,6 +129,7 @@ export async function runWebProbes(config, client) {
         finding({
           id: spec.id,
           title: `Security header ${spec.label} is deployed`,
+          observed: `${spec.label} is not sent`,
           status: "fail",
           severity: spec.severity,
           evidence: `HTTP ${response.status} on ${baseUrl.href} — ${spec.label} header is absent.`,
@@ -142,6 +143,7 @@ export async function runWebProbes(config, client) {
       finding({
         id: spec.id,
         title: `Security header ${spec.label} is deployed`,
+        observed: weakness ? `${spec.label} is present but weak: ${weakness}` : "",
         status: weakness ? "warn" : "pass",
         severity: spec.severity,
         evidence: weakness ? `${spec.label}: ${value}\nWeakness: ${weakness}` : `${spec.label}: ${value}`,

@@ -481,6 +481,7 @@ export async function runAgentProbes(config, client) {
         finding({
           id: probe.id,
           title: probe.title,
+          observed: probe.observed,
           status: hits.length ? "fail" : "pass",
           severity: probe.severity,
           evidence: hits.length

@@ -95,6 +95,10 @@ export function buildModel(reports, { title = "" } = {}) {
   const blockers = fails.filter((f) => f.severity === "critical" || f.severity === "high");
   const domainRankOf = (d) => { const i = DOMAIN_ORDER.indexOf(d); return i === -1 ? 99 : i; };
   const failDomains = [...new Set(fails.map((f) => domainForId(f.id)))].sort((a, b) => domainRankOf(a) - domainRankOf(b));
+  // Blockers are critical/high only, so their domains are a subset. Reporting the blocker
+  // count against every failing domain overstated the blast radius.
+  const blockerDomains = [...new Set(blockers.map((f) => domainForId(f.id)))].sort((a, b) => domainRankOf(a) - domainRankOf(b));
+  const nonBlockerDomains = failDomains.filter((d) => !blockerDomains.includes(d));
 
   const execBullets = [];
   if (fails.length === 0 && warns.length === 0) {
@@ -106,11 +110,16 @@ export function buildModel(reports, { title = "" } = {}) {
     // 1. The decision.
     const verdict =
       readiness === "not-ready"
-        ? `<strong>Deployment should be blocked.</strong> ${blockers.length} production blocker(s) across ${failDomains.length} trust domain(s)`
+        ? `<strong>Deployment should be blocked.</strong> ${blockers.length} production blocker(s) confirmed across ${blockerDomains.length} trust domain(s)`
         : readiness === "caution"
           ? `<strong>Deploy only with a documented remediation plan.</strong> No critical or high-severity control failed, but ${fails.length + warns.length} item(s) need attention`
           : `<strong>No blocking failure.</strong> ${fails.length} low-severity item(s) recorded`;
-    execBullets.push(`      <li>${verdict}: ${esc(failDomains.join(", "))}.</li>`);
+    const verdictDomains = readiness === "not-ready" ? blockerDomains : failDomains;
+    const alsoAffected =
+      readiness === "not-ready" && nonBlockerDomains.length
+        ? ` ${fails.length - blockers.length} further medium or low-severity failure(s) affect ${esc(nonBlockerDomains.join(" and "))}.`
+        : "";
+    execBullets.push(`      <li>${verdict}: ${esc(verdictDomains.join(", "))}.${alsoAffected}</li>`);
 
     // 2. The compound story, where the evidence supports one.
     if (attackPaths.length) {
@@ -131,7 +140,7 @@ export function buildModel(reports, { title = "" } = {}) {
       byDomain.get(domain).push(f);
     }
     for (const [domain, items] of [...byDomain.entries()].sort((a, b) => domainRankOf(a[0]) - domainRankOf(b[0]))) {
-      const statements = [...new Set(items.map((f) => f.observed || getTestMeta(f.id).purpose))];
+      const statements = [...new Set(items.map((f) => (f.observed || getTestMeta(f.id).purpose).replace(/.$/, "")))];
       if (statements.length === 1) {
         execBullets.push(`      <li><strong>${esc(domain)}</strong>: ${esc(statements[0])}.</li>`);
       } else {
