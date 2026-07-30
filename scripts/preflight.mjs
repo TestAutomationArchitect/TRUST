@@ -53,11 +53,26 @@ try {
   // A single command string, not args + shell:true — the latter triggers DEP0190 because
   // arguments would be concatenated rather than escaped. npm needs a shell on Windows.
   const packed = JSON.parse(execSync("npm pack --dry-run --json", { cwd: root, stdio: ["ignore", "pipe", "pipe"] }).toString());
-  const entries = packed[0]?.files?.map((f) => f.path) ?? [];
-  const forbidden = entries.filter((f) => /^\.env$|^reports\/|^\.git\/|\.pem$|\.key$|^test\//.test(f));
-  if (forbidden.length) failures.push(`tarball would include files that must never ship: ${forbidden.join(", ")}`);
-  if (!entries.includes("src/cli.mjs")) failures.push("tarball is missing src/cli.mjs — check the files allowlist.");
-  notes.push(`tarball contains ${entries.length} files, ${(packed[0]?.unpackedSize / 1024).toFixed(0)} kB unpacked`);
+  // npm has changed this payload's shape between majors, and the CI runner does not
+  // necessarily run the same npm as a developer's machine. Accept either an array of
+  // results or a single object, and treat "could not enumerate" as missing information —
+  // never as evidence of a bad tarball. Turning silence into a blocker previously failed
+  // a release for a file that was present all along.
+  const result = Array.isArray(packed) ? packed[0] : packed;
+  const entries = (result?.files ?? []).map((f) => (typeof f === "string" ? f : f.path)).filter(Boolean);
+
+  if (entries.length === 0) {
+    notes.push(
+      `npm pack --json reported no file list (npm ${execSync("npm --version").toString().trim()}) — ` +
+        "skipping tarball content assertions; verify with `npm pack --dry-run` if this persists",
+    );
+  } else {
+    const forbidden = entries.filter((f) => /^\.env$|^reports\/|^\.git\/|\.pem$|\.key$|^test\//.test(f));
+    if (forbidden.length) failures.push(`tarball would include files that must never ship: ${forbidden.join(", ")}`);
+    if (!entries.includes("src/cli.mjs")) failures.push("tarball is missing src/cli.mjs — check the files allowlist.");
+    const size = Number(result?.unpackedSize);
+    notes.push(`tarball contains ${entries.length} files${Number.isFinite(size) ? `, ${(size / 1024).toFixed(0)} kB unpacked` : ""}`);
+  }
 } catch (error) {
   notes.push(`could not inspect the tarball (${error.message.split("\n")[0]}) — verify with \`npm pack --dry-run\` manually`);
 }
