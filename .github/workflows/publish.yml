@@ -1,13 +1,23 @@
 name: Publish
 
-# Publishes to npm with provenance, so a partner org can verify the tarball was built
-# from this repository by this workflow — not uploaded from someone's laptop.
+# Publishes to npm using Trusted Publishing: npm exchanges this workflow's OIDC identity
+# for a short-lived credential at publish time. No token is stored anywhere — nothing to
+# leak, nothing to rotate, and no 2FA bypass to justify. Provenance is produced
+# automatically, so a partner can verify the tarball was built by this workflow rather
+# than uploaded from someone's laptop.
 #
-# One-time setup:
-#   1. Replace the placeholder scope in package.json (preflight blocks publish otherwise).
-#   2. Create the npm org/scope and add an automation token as the NPM_TOKEN secret,
-#      or configure a trusted publisher for this repo.
-#   3. Protect the "npm" environment with required reviewers.
+# One-time setup on npmjs.com → the package → Settings → Trusted Publisher:
+#   Publisher:   GitHub Actions
+#   Repository:  TestAutomationArchitect/TRUST
+#   Workflow:    publish.yml
+#   Environment: npm          (must match the environment: below)
+#
+# Note: npm's trusted-publisher settings live on the package, so a package that has never
+# been published may need one manual release first (`npm publish --otp=<code>`) before the
+# publisher can be configured. Every release after that needs no credential.
+#
+# Also protect the "npm" environment with required reviewers, so no release publishes
+# without a human approving the deployment.
 
 on:
   push:
@@ -36,6 +46,12 @@ jobs:
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
+
+      # Trusted publishing needs npm >= 11.5.1; Node 22 bundles npm 10.
+      - name: Upgrade npm
+        run: |
+          npm install -g npm@latest
+          npm --version
 
       # No dependencies to install — that is the point. `npm ci` would fail without a
       # lockfile, so assert the invariant instead.
@@ -73,11 +89,11 @@ jobs:
           sha256sum "$TARBALL" | tee "$TARBALL.sha256"
           echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
 
-      - name: Publish to npm with provenance
+      # No NODE_AUTH_TOKEN: the OIDC exchange is the credential. id-token: write above is
+      # what makes it possible, and provenance is generated as part of the exchange.
+      - name: Publish to npm via trusted publishing
         if: startsWith(github.ref, 'refs/tags/v') && github.event.inputs.dry_run != 'true'
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
 
       # Airgapped partners install the checksummed tarball instead of using a registry.
       - name: Attach tarball to the release
@@ -96,7 +112,7 @@ jobs:
             echo
             echo "- package: \`$(node -p "require('./package.json').name")\`"
             echo "- tarball: \`${TARBALL}\` (\`$(cut -d' ' -f1 < "${TARBALL}.sha256")\`)"
-            echo "- provenance: attested via GitHub OIDC"
+            echo "- provenance: attested via GitHub OIDC (trusted publishing, no stored token)"
             echo
             echo "Partners install with \`npx $(node -p "require('./package.json').name") init --target https://dev.example.com\`"
           } >> "$GITHUB_STEP_SUMMARY"
