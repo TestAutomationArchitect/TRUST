@@ -1,0 +1,69 @@
+{
+  "name": "@testautomationarchitect/trust",
+  "version": "1.0.0",
+  "description": "TRUST — Trust Reporting & Unified Security Testing. Zero-dependency security verification for web, API, storage, AI-agent and mobile targets.",
+  "keywords": [
+    "security",
+    "security-testing",
+    "authorization",
+    "prompt-injection",
+    "llm-security",
+    "ai-agent-security",
+    "appsec",
+    "devsecops"
+  ],
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TestAutomationArchitect/TRUST.git"
+  },
+  "homepage": "https://github.com/TestAutomationArchitect/TRUST#readme",
+  "bugs": {
+    "url": "https://github.com/TestAutomationArchitect/TRUST/issues"
+  },
+  "bin": {
+    "trust": "./src/cli.mjs"
+  },
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./catalog": "./src/catalog.mjs",
+    "./safety": "./src/safety.mjs",
+    "./finding": "./src/finding.mjs",
+    "./probes/*": "./src/probes/*.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src/",
+    "config/dev.json",
+    "config/minimal.json",
+    "docs/VERSIONING.md",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE",
+    "ACCEPTABLE_USE.md",
+    ".env.example"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "trust": "node src/cli.mjs",
+    "passive": "node --env-file=.env src/cli.mjs run --config config/dev.json --profile passive",
+    "authenticated": "node --env-file=.env src/cli.mjs run --config config/dev.json --profile authenticated",
+    "agent": "node --env-file=.env src/cli.mjs run --config config/dev.json --profile agent",
+    "all": "node --env-file=.env src/cli.mjs run --config config/dev.json --profile all",
+    "report": "node src/cli.mjs report --dir reports",
+    "catalog": "node src/cli.mjs catalog",
+    "test": "node --test \"test/*.test.mjs\"",
+    "prepublishOnly": "node scripts/preflight.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

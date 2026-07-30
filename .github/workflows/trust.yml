@@ -1,0 +1,76 @@
+name: TRUST security verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Config to run (config/<env>.json)
+        default: dev
+  schedule:
+    - cron: "0 3 * * 1"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      ENV: ${{ github.event.inputs.environment || 'dev' }}
+      # Tokens are injected as secrets; config only ever names the variables.
+      AUTH_TOKEN_A: ${{ secrets.AUTH_TOKEN_A }}
+      AUTH_TOKEN_B: ${{ secrets.AUTH_TOKEN_B }}
+      STORAGE_TOKEN_A: ${{ secrets.STORAGE_TOKEN_A }}
+      STORAGE_TOKEN_B: ${{ secrets.STORAGE_TOKEN_B }}
+      AGENT_TOKEN_A: ${{ secrets.AGENT_TOKEN_A }}
+      AGENT_TOKEN_B: ${{ secrets.AGENT_TOKEN_B }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Validate config
+        run: node src/cli.mjs --config config/$ENV.json --profile all --dry-run
+
+      # Each profile records its own exit code so a later profile still runs,
+      # and the gate is applied once at the end.
+      - name: Passive profile
+        id: passive
+        continue-on-error: true
+        run: node src/cli.mjs --config config/$ENV.json --profile passive
+
+      - name: Authenticated profile
+        id: authenticated
+        continue-on-error: true
+        run: node src/cli.mjs --config config/$ENV.json --profile authenticated
+
+      - name: Agent profile
+        id: agent
+        continue-on-error: true
+        run: node src/cli.mjs --config config/$ENV.json --profile agent
+
+      - name: Combined Trust Assessment
+        if: always()
+        run: node scripts/combined-report.mjs --dir reports
+
+      - name: Publish reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trust-assessment
+          path: |
+            reports/*.html
+            reports/*.json
+          retention-days: 30
+
+      - name: Gate on blocking failures
+        if: always()
+        run: |
+          for outcome in "${{ steps.passive.outcome }}" "${{ steps.authenticated.outcome }}" "${{ steps.agent.outcome }}"; do
+            if [ "$outcome" = "failure" ]; then
+              echo "::error::TRUST found critical, high or medium severity failures — see the Trust Assessment artifact."
+              exit 1
+            fi
+          done
+          echo "No blocking failures."

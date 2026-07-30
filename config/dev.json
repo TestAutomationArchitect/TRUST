@@ -1,0 +1,115 @@
+{
+  // TRUST config — targets, safety limits and probe definitions.
+  // Rule: this file stores env var NAMES, never secret values.
+  "name": "example-app-dev",
+  "environment": "dev",
+
+  "targets": {
+    "web": "https://dev.example.com",
+    "allowedHosts": ["dev.example.com", "api.dev.example.com", "files.dev.example.com", "agents.dev.example.com"]
+  },
+
+  "safety": {
+    "maxRequests": 120,
+    "minimumDelayMs": 150,
+    "requestTimeoutMs": 30000,
+    "allowWrites": false,
+    "allowAgentInvocations": false,
+    "productionOverride": false
+  },
+
+  "architecture": "Browser → IdP (OIDC/PKCE) → API Gateway → GraphQL API\n                                          → Object storage (per-tenant prefixes)\n        → IdP (OAuth2) → Agent runtime\n                              └── L1 Orchestrator\n                                    ├── L2 Data Coordinator → L3 SQL Executor\n                                    └── L2 Knowledge Coordinator (RAG)",
+
+  "limitations": [
+    "Supervised tests (interactive OAuth, file upload, real clickjacking render) remain manual."
+  ],
+
+  "web": {
+    "expectedFrameAncestors": ["https://portal.example.com"],
+    "sensitivePaths": ["/.env", "/.git/config", "/config.json", "/amplify_outputs.json", "/aws-exports.js", "/actuator/env"],
+    "redirectParams": ["redirect", "next", "returnUrl", "url"],
+    "rateLimitBurst": 8,
+    "maxScriptsToScan": 3
+  },
+
+  "api": {
+    "kind": "graphql",
+    "endpoint": "https://api.dev.example.com/graphql",
+    "authScheme": "Bearer",
+    "tokenAEnv": "AUTH_TOKEN_A",
+    "tokenBEnv": "AUTH_TOKEN_B",
+
+    // User B attempts to read a record owned by User A.
+    "crossUser": {
+      "query": "query GetConversation($id: ID!) { getConversation(id: $id) { id owner title } }",
+      "variables": { "id": "REPLACE_WITH_A_RECORD_ID_OWNED_BY_USER_A" }
+    },
+
+    // List query must return only the caller's records.
+    "unscopedList": {
+      "query": "query ListConversations { listConversations { items { id owner } } }",
+      "ownerField": "owner",
+      "expectedOwner": "REPLACE_WITH_USER_A_SUBJECT_CLAIM"
+    },
+
+    // Non-admin attempting a permission-modifying mutation (needs allowWrites).
+    "permissionMutation": {
+      "query": "mutation Grant($input: CreateDepartmentMappingInput!) { createDepartmentMapping(input: $input) { id } }",
+      "variables": { "input": { "userId": "trust-probe", "department": "TRUST-PROBE" } }
+    },
+
+    // Client-supplied identity must be ignored in favour of the token claim.
+    "useridSpoof": {
+      "query": "mutation Create($input: CreateConversationInput!) { createConversation(input: $input) { id owner } }",
+      "variables": { "input": { "userId": "trust-spoofed-identity", "title": "TRUST probe" } },
+      "spoofedUserId": "trust-spoofed-identity",
+      "write": true
+    },
+
+    // Native password flow must be unavailable when SSO is mandatory.
+    "passwordAuth": {
+      "endpoint": "https://api.dev.example.com/oauth2/token",
+      "method": "POST",
+      "body": { "grant_type": "password", "username": "trust-probe@example.invalid", "password": "not-a-real-password" }
+    }
+  },
+
+  "storage": {
+    "baseUrl": "https://files.dev.example.com/",
+    "authScheme": "Bearer",
+    "tokenAEnv": "STORAGE_TOKEN_A",
+    "tokenBEnv": "STORAGE_TOKEN_B",
+    "publicListingUrl": "https://files.dev.example.com/?list-type=2",
+    "targets": [
+      { "name": "tenant-b-prefix-as-a", "scope": "tenant", "as": "A", "key": "protected/tenant-b/", "title": "User A cannot list Tenant B's prefix" },
+      { "name": "tenant-a-prefix-as-b", "scope": "tenant", "as": "B", "key": "protected/tenant-a/", "title": "User B cannot list Tenant A's prefix" },
+      { "name": "user-b-file-as-a", "scope": "user", "as": "A", "key": "protected/tenant-a/user-b/private.pdf", "title": "User A cannot read User B's file" }
+    ]
+  },
+
+  "agent": {
+    "runtimeEndpoint": "https://agents.dev.example.com/invoke",
+    "authScheme": "Bearer",
+    "accessTokenAEnv": "AGENT_TOKEN_A",
+    "accessTokenBEnv": "AGENT_TOKEN_B",
+    "agentIdField": "agentId",
+    "promptField": "prompt",
+    "sessionField": "sessionId",
+    "userIdField": "userId",
+    "allowedAgentId": "orchestrator",
+    "deniedAgentId": "restricted-sub-agent",
+    "subAgents": [
+      { "id": "l2-data-coordinator", "name": "L2-DATA", "label": "L2 Data Coordinator" },
+      { "id": "l2-knowledge-coordinator", "name": "L2-KNOWLEDGE", "label": "L2 Knowledge Coordinator" },
+      { "id": "l3-sql-executor", "name": "L3-SQL", "label": "L3 SQL Executor" }
+    ]
+  },
+
+  "mobile": {
+    "baseUrl": "https://dev.example.com",
+    "deepLinkEndpoint": "https://dev.example.com/app/link",
+    "deepLinkParam": "target",
+    "apiEndpoint": "https://api.dev.example.com/v1/profile",
+    "tokenEnv": "AUTH_TOKEN_A"
+  }
+}

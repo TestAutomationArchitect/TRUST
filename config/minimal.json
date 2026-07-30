@@ -1,0 +1,13 @@
+{
+  // Smallest useful TRUST config: passive profile only, no credentials needed.
+  "name": "example-passive",
+  "environment": "dev",
+  "targets": {
+    "web": "https://example.com",
+    "allowedHosts": ["example.com"]
+  },
+  "safety": {
+    "maxRequests": 40,
+    "minimumDelayMs": 250
+  }
+}

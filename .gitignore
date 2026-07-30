@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+node_modules/
+reports/
+*.log
+
+# Packed tarballs
+*.tgz
+
+# Editor-local
+.vscode/
