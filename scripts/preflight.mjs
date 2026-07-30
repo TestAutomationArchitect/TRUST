@@ -8,7 +8,7 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -50,7 +50,9 @@ try {
 
 // 6. The tarball must not contain secrets or local artefacts.
 try {
-  const packed = JSON.parse(execFileSync("npm", ["pack", "--dry-run", "--json"], { cwd: root, stdio: ["ignore", "pipe", "pipe"], shell: process.platform === "win32" }).toString());
+  // A single command string, not args + shell:true — the latter triggers DEP0190 because
+  // arguments would be concatenated rather than escaped. npm needs a shell on Windows.
+  const packed = JSON.parse(execSync("npm pack --dry-run --json", { cwd: root, stdio: ["ignore", "pipe", "pipe"] }).toString());
   const entries = packed[0]?.files?.map((f) => f.path) ?? [];
   const forbidden = entries.filter((f) => /^\.env$|^reports\/|^\.git\/|\.pem$|\.key$|^test\//.test(f));
   if (forbidden.length) failures.push(`tarball would include files that must never ship: ${forbidden.join(", ")}`);
