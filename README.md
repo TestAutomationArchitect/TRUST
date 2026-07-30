@@ -17,7 +17,7 @@ npm i -D @automationarchitect/trust        # in the repo whose target you are te
 npx @automationarchitect/trust init --target https://dev.example.com
 ```
 
-Nothing is compiled and there is no install script, so `npm ci --ignore-scripts` works. Releases are published from CI via [npm trusted publishing](https://docs.npmjs.com/trusted-publishers) — no long-lived token exists anywhere — and carry a provenance attestation you can verify with `npm audit signatures`. Airgapped partners can install the checksummed tarball attached to each GitHub release: `npm i ./automationarchitect-trust-1.0.0.tgz`.
+Nothing is compiled and there is no install script, so `npm ci --ignore-scripts` works. Releases from 1.0.1 onward are published from CI via [npm trusted publishing](https://docs.npmjs.com/trusted-publishers) — no long-lived token exists anywhere — and carry a provenance attestation you can verify with `npm audit signatures`. 1.0.0 was published manually to create the package, because a trusted publisher cannot be attached to a package that does not yet exist; it has no attestation. Airgapped partners can install the checksummed tarball attached to each GitHub release: `npm i ./automationarchitect-trust-1.0.0.tgz`.
 
 > **Before your first publish**, confirm the npm scope exists and you can publish to it (`npm org ls testautomationarchitect`). `scripts/preflight.mjs` refuses to publish a package that still carries a placeholder name, has gained a dependency, or would ship secrets.
 
