@@ -60,7 +60,7 @@ export function configTemplate({ name, target, environment }) {
   }
 
   // ── Uncomment and fill in as you cover more surface. ──
-  // "api":     see node_modules/@testautomationarchitect/trust/config/dev.json for a worked example
+  // "api":     see node_modules/@automationarchitect/trust/config/dev.json for a worked example
   // "storage": …
   // "agent":   …
   // "mobile":  …
@@ -99,7 +99,7 @@ export const EXAMPLE_PROBE = `/**
  *   - Verdicts are pattern matches on status/headers/body. Never ask a model.
  *   - Any isolation claim needs two identities; any leak claim needs a canary().
  */
-import { defineProbe, finding, skipped, canary } from "@testautomationarchitect/trust";
+import { defineProbe, finding, skipped, canary } from "@automationarchitect/trust";
 
 export default defineProbe({
   name: "example",

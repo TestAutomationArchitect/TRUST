@@ -10,3 +10,6 @@ reports/
 
 # Editor-local
 .vscode/
+
+# Registry credentials
+.npmrc

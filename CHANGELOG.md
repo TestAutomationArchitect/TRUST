@@ -10,7 +10,7 @@ First distributable release: TRUST is now installable as a package rather than c
 
 ### Added
 
-- **Library API** (`@testautomationarchitect/trust`) — `runProfile()`, `defineProbe()`, `loadConfig()`,
+- **Library API** (`@automationarchitect/trust`) — `runProfile()`, `defineProbe()`, `loadConfig()`,
   `validateConfig()`, `finding()`, `writeCombinedReport()` and the catalogue registration
   helpers, so a partner can embed TRUST in an existing harness instead of shelling out.
 - **`trust init`** — scaffolds `config/<env>.json`, `.env.example`, an example org-specific

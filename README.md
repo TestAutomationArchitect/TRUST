@@ -5,7 +5,7 @@
 TRUST turns a target into a **Trust Assessment**: a posture score, a deployment-readiness verdict, architectural root causes, and per-finding evidence with remediation.
 
 ```bash
-npx @testautomationarchitect/trust init --target https://dev.example.com   # scaffold config + .env template
+npx @automationarchitect/trust init --target https://dev.example.com   # scaffold config + .env template
 trust run    --config config/dev.json --profile passive     # probe, write JSON + HTML
 trust report --dir reports                                  # merge into one Trust Assessment
 ```
@@ -13,11 +13,11 @@ trust report --dir reports                                  # merge into one Tru
 ## Install
 
 ```bash
-npm i -D @testautomationarchitect/trust        # in the repo whose target you are testing
-npx @testautomationarchitect/trust init --target https://dev.example.com
+npm i -D @automationarchitect/trust        # in the repo whose target you are testing
+npx @automationarchitect/trust init --target https://dev.example.com
 ```
 
-Nothing is compiled and there is no install script, so `npm ci --ignore-scripts` works. Releases are published with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) — verify with `npm audit signatures`. Airgapped partners can install the checksummed tarball attached to each GitHub release: `npm i ./testautomationarchitect-trust-1.0.0.tgz`.
+Nothing is compiled and there is no install script, so `npm ci --ignore-scripts` works. Releases are published with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) — verify with `npm audit signatures`. Airgapped partners can install the checksummed tarball attached to each GitHub release: `npm i ./automationarchitect-trust-1.0.0.tgz`.
 
 > **Before your first publish**, confirm the npm scope exists and you can publish to it (`npm org ls testautomationarchitect`). `scripts/preflight.mjs` refuses to publish a package that still carries a placeholder name, has gained a dependency, or would ship secrets.
 
@@ -35,7 +35,7 @@ Nothing is compiled and there is no install script, so `npm ci --ignore-scripts`
 `runProfile()` never writes to the console and never calls `process.exit`, so it embeds cleanly in an existing harness:
 
 ```js
-import { loadConfig, runProfile, writeCombinedReport } from "@testautomationarchitect/trust";
+import { loadConfig, runProfile, writeCombinedReport } from "@automationarchitect/trust";
 
 const config = await loadConfig("config/dev.json");
 for (const profile of ["passive", "authenticated"]) {
@@ -59,7 +59,7 @@ Partners add their own tests by pointing config at a probe module — resolved r
 ```
 
 ```js
-import { defineProbe, finding, skipped } from "@testautomationarchitect/trust";
+import { defineProbe, finding, skipped } from "@automationarchitect/trust";
 
 export default defineProbe({
   name: "acme-sso",

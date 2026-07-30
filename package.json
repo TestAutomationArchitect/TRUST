@@ -1,5 +1,5 @@
 {
-  "name": "@testautomationarchitect/trust",
+  "name": "@automationarchitect/trust",
   "version": "1.0.0",
   "description": "TRUST — Trust Reporting & Unified Security Testing. Zero-dependency security verification for web, API, storage, AI-agent and mobile targets.",
   "keywords": [
