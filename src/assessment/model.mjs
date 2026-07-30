@@ -7,7 +7,7 @@
  * new output (SARIF, a run-over-run delta, a dashboard feed) can reuse it unchanged.
  */
 
-import { getTestMeta, getDomain, domainForId, ROOT_CAUSE_MAP, DOMAIN_ORDER, SUMMARY_RULES, CATALOG, listCatalog, matchAttackPaths } from "../catalog.mjs";
+import { getTestMeta, getDomain, domainForId, ROOT_CAUSE_MAP, CATEGORY_ROOT_CAUSE_MAP, DOMAIN_ORDER, SUMMARY_RULES, CATALOG, listCatalog, matchAttackPaths } from "../catalog.mjs";
 import { computeScores } from "./scoring.mjs";
 import { esc, severityBadge, statusCls, ownerFor } from "./html.mjs";
 import { headline } from "../finding.mjs";
@@ -19,6 +19,15 @@ export function buildModel(reports, { title = "" } = {}) {
   const target = first.target ?? "Unknown";
   const environment = first.environment ?? "unknown";
   const dateStr = new Date().toLocaleDateString("en-GB", { year: "numeric", month: "long", day: "numeric" });
+
+  // The run JSON already carries domain and category, set when the probe ran and its
+  // catalogue entries were loaded. Re-deriving them here would discard the classification
+  // of every custom probe, because merge time has no knowledge of partner catalogues.
+  const domainOf = (f) => f.domain || domainForId(f.id);
+  const metaOf = (f) => {
+    const meta = getTestMeta(f.id);
+    return f.category ? { ...meta, category: f.category } : meta;
+  };
 
   const allFindings = [];
   for (const [profile, data] of reports) {
@@ -42,7 +51,7 @@ export function buildModel(reports, { title = "" } = {}) {
   // ── categories → finding cards ────────────────────────────────────
   const categories = new Map();
   for (const f of allFindings) {
-    const meta = getTestMeta(f.id);
+    const meta = metaOf(f);
     if (!categories.has(meta.category)) categories.set(meta.category, []);
     categories.get(meta.category).push({ ...f, ...meta });
   }
@@ -94,17 +103,17 @@ export function buildModel(reports, { title = "" } = {}) {
   const attackPaths = matchAttackPaths(new Set(fails.map((f) => f.id)));
   const blockers = fails.filter((f) => f.severity === "critical" || f.severity === "high");
   const domainRankOf = (d) => { const i = DOMAIN_ORDER.indexOf(d); return i === -1 ? 99 : i; };
-  const failDomains = [...new Set(fails.map((f) => domainForId(f.id)))].sort((a, b) => domainRankOf(a) - domainRankOf(b));
+  const failDomains = [...new Set(fails.map((f) => domainOf(f)))].sort((a, b) => domainRankOf(a) - domainRankOf(b));
   // Blockers are critical/high only, so their domains are a subset. Reporting the blocker
   // count against every failing domain overstated the blast radius.
-  const blockerDomains = [...new Set(blockers.map((f) => domainForId(f.id)))].sort((a, b) => domainRankOf(a) - domainRankOf(b));
+  const blockerDomains = [...new Set(blockers.map((f) => domainOf(f)))].sort((a, b) => domainRankOf(a) - domainRankOf(b));
   const nonBlockerDomains = failDomains.filter((d) => !blockerDomains.includes(d));
 
   const execBullets = [];
   if (fails.length === 0 && warns.length === 0) {
     execBullets.push(
       `      <li><strong>No control failed in this run.</strong> ${passes.length} control(s) were validated across ` +
-        `${[...new Set(passes.map((f) => domainForId(f.id)))].length} trust domain(s). Read this alongside the coverage figure below — it is a statement about what was tested.</li>`,
+        `${[...new Set(passes.map((f) => domainOf(f)))].length} trust domain(s). Read this alongside the coverage figure below — it is a statement about what was tested.</li>`,
     );
   } else {
     // 1. The decision.
@@ -135,12 +144,12 @@ export function buildModel(reports, { title = "" } = {}) {
     // 3. What is exposed, in the probes' own words, grouped by domain and worst-first.
     const byDomain = new Map();
     for (const f of fails) {
-      const domain = domainForId(f.id);
+      const domain = domainOf(f);
       if (!byDomain.has(domain)) byDomain.set(domain, []);
       byDomain.get(domain).push(f);
     }
     for (const [domain, items] of [...byDomain.entries()].sort((a, b) => domainRankOf(a[0]) - domainRankOf(b[0]))) {
-      const statements = [...new Set(items.map((f) => (f.observed || getTestMeta(f.id).purpose).replace(/.$/, "")))];
+      const statements = [...new Set(items.map((f) => (f.observed || metaOf(f).purpose).replace(/.$/, "")))];
       if (statements.length === 1) {
         execBullets.push(`      <li><strong>${esc(domain)}</strong>: ${esc(statements[0])}.</li>`);
       } else {
@@ -154,7 +163,7 @@ export function buildModel(reports, { title = "" } = {}) {
     if (warns.length) {
       const warnCats = new Map();
       for (const f of warns) {
-        const cat = getTestMeta(f.id).category;
+        const cat = metaOf(f).category;
         warnCats.set(cat, (warnCats.get(cat) ?? 0) + 1);
       }
       const parts = [...warnCats.entries()].map(([c, n]) => `${c} (${n})`).join(", ");
@@ -166,7 +175,7 @@ export function buildModel(reports, { title = "" } = {}) {
   if (skips.length) {
     const skipCats = new Map();
     for (const f of skips) {
-      const cat = getTestMeta(f.id).category;
+      const cat = metaOf(f).category;
       skipCats.set(cat, (skipCats.get(cat) ?? 0) + 1);
     }
     const parts = [...skipCats.entries()].map(([c, n]) => `${c} (${n})`).join(", ");
@@ -178,10 +187,11 @@ export function buildModel(reports, { title = "" } = {}) {
   // ── root causes ───────────────────────────────────────────────────
   const rootCauseDomains = new Map();
   for (const f of [...fails, ...warns]) {
-    const domain = domainForId(f.id);
-    if (!rootCauseDomains.has(domain)) rootCauseDomains.set(domain, { count: 0, blocking: false });
+    const domain = domainOf(f);
+    if (!rootCauseDomains.has(domain)) rootCauseDomains.set(domain, { count: 0, blocking: false, categories: new Set() });
     const entry = rootCauseDomains.get(domain);
     entry.count += 1;
+    entry.categories.add(metaOf(f).category);
     if (f.status === "fail" && (f.severity === "critical" || f.severity === "high")) entry.blocking = true;
   }
   const rootCauseRows =
@@ -195,14 +205,18 @@ export function buildModel(reports, { title = "" } = {}) {
       })
       .map(
         ([domain, d]) =>
-          `    <tr><td><span class="rc-dot ${d.blocking ? "bad" : "warn"}"></span></td><td class="rc-domain">${esc(domain)}</td><td class="rc-cause">${esc(ROOT_CAUSE_MAP[domain] ?? `${domain} controls need attention`)} <span style="color:var(--muted)">(${d.count} finding${d.count > 1 ? "s" : ""})</span></td></tr>`,
+          // When every failure in a domain shares one category, describe that category rather
+          // than the domain — the domain statement is too coarse to match the evidence.
+          `    <tr><td><span class="rc-dot ${d.blocking ? "bad" : "warn"}"></span></td><td class="rc-domain">${esc(domain)}</td><td class="rc-cause">${esc(
+            (d.categories.size === 1 && CATEGORY_ROOT_CAUSE_MAP[[...d.categories][0]]) || ROOT_CAUSE_MAP[domain] || `${domain} controls need attention`,
+          )} <span style="color:var(--muted)">(${d.count} finding${d.count > 1 ? "s" : ""})</span></td></tr>`,
       )
       .join("\n") || '    <tr><td colspan="3" style="color:var(--ok);">No architectural issues detected.</td></tr>';
 
   // ── verified trust controls ───────────────────────────────────────
   const trustDomainPasses = new Map();
   for (const f of passes) {
-    const domain = domainForId(f.id);
+    const domain = domainOf(f);
     if (!trustDomainPasses.has(domain)) trustDomainPasses.set(domain, []);
     trustDomainPasses.get(domain).push(f);
   }
@@ -260,7 +274,7 @@ export function buildModel(reports, { title = "" } = {}) {
     .sort((a, b) => (sevOrder[a.severity] ?? 5) - (sevOrder[b.severity] ?? 5))
     .map(
       (f) =>
-        `    <tr><td>${severityBadge(f.severity, f.status)}</td><td>${esc(headline(f))}<br/><span style="font-size:11px;color:var(--muted)">${esc(f.id)}</span></td><td>${esc(f.remediation || "See finding evidence.")}</td><td><span class="env-badge">${esc(ownerFor(f.id))}</span></td></tr>`,
+        `    <tr><td>${severityBadge(f.severity, f.status)}</td><td>${esc(headline(f))}<br/><span style="font-size:11px;color:var(--muted)">${esc(f.id)}</span></td><td>${esc(f.remediation || "See finding evidence.")}</td><td><span class="env-badge">${esc(ownerFor(f, domainOf(f)))}</span></td></tr>`,
     )
     .join("\n");
 
@@ -281,7 +295,7 @@ export function buildModel(reports, { title = "" } = {}) {
   };
   const workstreamMap = new Map();
   for (const f of [...fails, ...warns]) {
-    const domain = domainForId(f.id);
+    const domain = domainOf(f);
     if (!workstreamMap.has(domain)) workstreamMap.set(domain, []);
     workstreamMap.get(domain).push(f);
   }
@@ -304,7 +318,7 @@ export function buildModel(reports, { title = "" } = {}) {
     .map(
       (w) =>
         `    <tr><td><span class="tag ${w.priority.cls}">${w.priority.label}</span></td>` +
-        `<td><strong>${esc(w.name)}</strong><div class="ws-meta">${esc(w.domain)} · owners: ${esc([...new Set(w.items.map((f) => ownerFor(f.id)))].join(", "))}` +
+        `<td><strong>${esc(w.name)}</strong><div class="ws-meta">${esc(w.domain)} · owners: ${esc([...new Set(w.items.map((f) => ownerFor(f, domainOf(f))))].join(", "))}` +
         `${w.inPath.length ? ` · on ${w.inPath.length} attack path${w.inPath.length > 1 ? "s" : ""}` : ""}</div></td>` +
         `<td>${w.items.length}<div class="ws-meta">${w.items.map((f) => `<code>${esc(f.id)}</code>`).join(" ")}</div></td>` +
         `<td class="ws-criteria">${w.items.map((f) => `<span class="ws-crit">${esc(f.title)}</span>`).join("")}</td></tr>`,
@@ -336,7 +350,7 @@ export function buildModel(reports, { title = "" } = {}) {
   // how a status or severity is *rendered* can never silently break the filters.
   const inventoryRows = allFindings
     .map((f) => {
-      const category = getTestMeta(f.id).category;
+      const category = metaOf(f).category;
       return (
         `    <tr data-status="${esc(f.status)}" data-severity="${esc(f.severity)}" data-category="${esc(category)}" data-profile="${esc(f.profile)}">` +
         `<td><span class="tag ${statusCls(f.status)}">${f.status.toUpperCase()}</span></td>` +
@@ -353,7 +367,7 @@ export function buildModel(reports, { title = "" } = {}) {
   const countBy = (key) => {
     const counts = new Map();
     for (const f of allFindings) {
-      const value = key === "category" ? getTestMeta(f.id).category : f[key];
+      const value = key === "category" ? metaOf(f).category : f[key];
       counts.set(value, (counts.get(value) ?? 0) + 1);
     }
     return counts;
@@ -371,7 +385,7 @@ export function buildModel(reports, { title = "" } = {}) {
   const profileScopeRows = [...reports.entries()]
     .map(
       ([profile, data]) =>
-        `    <tr><td><span class="env-badge">${esc(profile)}</span></td><td>${esc([...new Set(data.findings.map((f) => getTestMeta(f.id).category))].join(", "))}</td><td>${data.findings.length}</td><td><span class="tag ok">Executed</span></td></tr>`,
+        `    <tr><td><span class="env-badge">${esc(profile)}</span></td><td>${esc([...new Set(data.findings.map((f) => metaOf(f).category))].join(", "))}</td><td>${data.findings.length}</td><td><span class="tag ok">Executed</span></td></tr>`,
     )
     .join("\n");
 
@@ -444,7 +458,24 @@ export function buildModel(reports, { title = "" } = {}) {
   // posture. Coverage is reported alongside it, and the label changes when it is partial,
   // so a run of one passing test can never present itself as 100.
   const seenIds = new Set(allFindings.map((f) => f.id));
-  const catalogued = listCatalog().filter((e) => !e.id.endsWith("-CONFIG"));
+  // Only controls that could apply to this target count towards coverage. An API-only
+  // assessment must not be marked down for mobile probes that were never configured.
+  const SURFACE_OF_ID = [
+    [/^TOKEN-/, ["api", "agent", "storage", "auth"]],
+    [/^WEB-|^INJECT-/, ["web"]],
+    [/^API-|^SESSION-/, ["api"]],
+    [/^AUTH-/, ["auth", "api"]],
+    [/^STORAGE-/, ["storage"]],
+    [/^AGENT-/, ["agent"]],
+    [/^MOBILE-/, ["mobile"]],
+  ];
+  const configuredKinds = new Set(surfaces.map((s) => s.kind));
+  const applies = (id) => {
+    const rule = SURFACE_OF_ID.find(([pattern]) => pattern.test(id));
+    if (!rule) return true; // an unrecognised (partner) ID is assumed in scope
+    return rule[1].some((kind) => configuredKinds.has(kind));
+  };
+  const catalogued = listCatalog().filter((e) => !e.id.endsWith("-CONFIG") && applies(e.id));
   const notRun = catalogued.filter((e) => !seenIds.has(e.id));
   const assessedCount = allFindings.filter((f) => f.status !== "skip").length;
   const unvalidatedCount = skips.length;

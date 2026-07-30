@@ -41,7 +41,8 @@ const USAGE = `${TOOL.name} ${TOOL.version} — ${TOOL.tagline}
                 merge the latest run per profile into one Trust Assessment
 
   Secrets: .env in the working directory is loaded automatically (real environment
-  variables always win). Override with --env-file <path>, disable with --no-env.
+  variables always win). Override with --env <path>, disable with --no-env.
+  Do not use --env-file through an installed binary: Node intercepts that flag.
 
   trust catalog [--json] [--domain <trust domain>]
                 list every known test with its category, domain and purpose
@@ -100,7 +101,10 @@ export function parseArgs(argv) {
       case "--force": opts.force = true; break;
       case "--no-probe": opts.withProbe = false; break;
       case "--json": opts.json = true; break;
-      case "--env-file": opts.envFile = next(); break;
+      // Node claims --env-file for itself when the CLI runs through an npm bin shim, so the
+      // flag never reaches this parser and the user sees "node: .env: not found". --env is
+      // ours alone; --env-file still works for a direct `node src/cli.mjs` invocation.
+      case "--env": case "--env-file": opts.envFile = next(); break;
       case "--no-env": opts.noEnv = true; break;
       case "--dry-run": opts.dryRun = true; break;
       case "--quiet": opts.quiet = true; break;

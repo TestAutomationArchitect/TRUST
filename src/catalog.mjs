@@ -247,6 +247,24 @@ export function domainForId(id) {
 }
 
 /** Architectural observations, not individual fixes. */
+/**
+ * Root causes at category granularity, consulted before the domain-level map. A domain like
+ * Infrastructure spans transport, headers, error handling and caching; attributing an error
+ * disclosure to "browser and transport hardening" misdescribes the evidence.
+ */
+export const CATEGORY_ROOT_CAUSE_MAP = {
+  "Error Handling": "Detailed server-side errors are returned to clients without a sanitised error boundary",
+  "API Surface": "The API's own description is reachable without authentication",
+  "Resource Limits": "A single request can multiply server work without a cost or depth budget",
+  "Data Minimisation": "Responses are serialised whole rather than shaped per role",
+  "Session Lifecycle": "Sessions cannot be withdrawn once issued",
+  "Token Hygiene": "Token claims are not constrained to a short life, a bound audience and least privilege",
+  "Test Integrity": "The test setup does not support the conclusions this report can draw",
+  Injection: "Untrusted input is not consistently validated, encoded or kept out of interpreters",
+  "Sensitive File Exposure": "Deployment artefacts are served alongside the application",
+  "Mobile Platform": "Server-side controls for mobile clients are incomplete",
+};
+
 export const ROOT_CAUSE_MAP = {
   "Identity Binding": "Client-controlled identity is trusted instead of server-side token claims",
   Authentication: "Authentication flow configuration permits a bypass or a weaker path",
@@ -273,7 +291,11 @@ export const DOMAIN_ORDER = [
 ];
 
 /**
- * Attack paths — how independently verified failures combine.
+ * Correlated control-failure chains — how independently verified failures combine.
+ *
+ * Naming matters here: each component control is proven to have failed, but no run executes
+ * the chain end to end. Calling it a "confirmed attack path" would claim more than the
+ * evidence supports. It becomes one only when TRUST can traverse the chain in a single run.
  *
  * A scanner lists findings; an assessment explains what they add up to. Each path fires only
  * when **every** required control is actually failing in this run, so the claim is derived

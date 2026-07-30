@@ -4,6 +4,61 @@ All notable changes are documented here. This project follows the semver contrac
 [docs/VERSIONING.md](docs/VERSIONING.md) — note that finding IDs and severities are part
 of the public API, and any change to a verdict is called out under **Verdict changes**.
 
+## [1.0.1] — 2026-07-30
+
+Correctness release from partner field testing. No new capability.
+
+### Fixed
+
+- **The combined report misfiled every custom-probe finding (P0, data integrity).** Runs record
+  each finding's domain and category while the probe's catalogue entries are loaded; the merge
+  step then re-derived both from a catalogue that no longer holds partner entries, so custom
+  findings were scored and displayed under "Other" / "Platform". 14 call sites in
+  `assessment/model.mjs` and one in `scoring.mjs` now prefer what the run recorded. A partner
+  running 18 custom probes lost four trust domains' worth of classification to this.
+- **`observed` was not redacted** while `evidence` was. Any probe putting a response fragment
+  in that field wrote it to disk unredacted.
+- **`--env-file` never reached TRUST** through an installed binary: Node claims the flag first,
+  producing `node: .env: not found`. The flag is now `--env`; `--env-file` still works for a
+  direct `node src/cli.mjs` invocation. (`.env` is auto-loaded, so most runs need neither.)
+- **A throttled response counted as an authorisation denial.** A 429 or 503 during a cross-user
+  check reported the isolation control as holding when it was never exercised.
+- **Cognito password-grant checks always reported WARN.** Cognito omits `grant_types_supported`
+  from its discovery document, so corroboration was impossible; `InvalidParameterException` from
+  a Cognito endpoint is now treated as conclusive.
+- **Coverage counted controls that could not apply.** An API-only target was marked down for
+  unconfigured mobile and agent probes. The denominator is now scoped by the surfaces the run
+  actually declared.
+- **Root causes were attributed at domain granularity**, so an error-disclosure finding read as
+  "browser and transport security hardening is incomplete". Where every failure in a domain
+  shares one category, the category's own root cause is used.
+- **Partner findings were assigned to a "Platform" owner** in the remediation plan. The owner
+  now falls back to the finding's trust domain.
+- Score bands implied that a low score means blockers are present; readiness is computed
+  independently and a report can sit in the moderate band and still be blocked.
+- `Assessment Integrity` and `Input Handling` appeared on domain cards but were undefined in
+  the glossary.
+
+### Changed
+
+- **"Corroborated attack path" → "Correlated control-failure chain."** Each component control is
+  proven to have failed, but no run executes the chain end to end. The report now says so
+  explicitly. The stronger wording returns when TRUST can traverse a chain in a single run.
+- `finding()` accepts optional `domain` and `category`, so a probe can classify an individual
+  finding rather than relying solely on its catalogue entry.
+- Redaction adds Azure SAS parameters (anywhere, not only after `?`/`&`), GCP service-account
+  `private_key` in JSON, Anthropic `sk-ant-`, HuggingFace `hf_` and Cohere keys, and now
+  handles quoted JSON values containing spaces.
+
+### Verdict changes
+
+| Test | Before | After |
+|---|---|---|
+| Any custom-probe finding | scored under Platform | scored under its declared domain |
+| `AUTH-PASSWORD-BYPASS` on Cognito | WARN (uncorroborated) | PASS when the grant is rejected |
+| Cross-user checks under rate limiting | could PASS while throttled | inconclusive rather than a false pass |
+| Coverage percentage | depressed by inapplicable controls | scoped to configured surfaces, so it rises |
+
 ## [1.0.0] — 2026-07-30
 
 First distributable release: TRUST is now installable as a package rather than cloned.

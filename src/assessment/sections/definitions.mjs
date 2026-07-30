@@ -27,7 +27,9 @@ export function renderDefinitions(model) {
     ["Authorization", "Record- and object-level access control: owner scoping, RBAC on writes, cross-user and cross-tenant isolation in APIs and storage."],
     ["AI Runtime", "The agent orchestration boundary — sub-agents reject direct invocation, sessions are owner-bound, memory is user-scoped, and guardrails apply at every level."],
     ["LLM Safety", "Prompt-injection resistance (direct and indirect), information-disclosure boundaries, and output sanitisation."],
-    ["Infrastructure", "Transport security, browser hardening headers, CORS, rate limiting, clickjacking protection, token storage and artefact exposure."],
+    ["Infrastructure", "Transport security, browser hardening headers, CORS, rate limiting, clickjacking protection, token storage, error handling and artefact exposure."],
+    ["Input Handling", "Validation, encoding and interpreter boundaries for untrusted input: injection, traversal, template evaluation, and header or host handling."],
+    ["Assessment Integrity", "Whether the test setup itself supports the conclusions — distinct identities, distinct tenants, live credentials, least-privilege scope. A failure here weakens every other result in the report."],
   ]);
 
   const scoring = group("Posture Score", [
@@ -39,7 +41,12 @@ export function renderDefinitions(model) {
     ["Domain Score", "The same formula applied per domain. Domains are ordered worst-first, because a strong composite hides a weak area."],
     [
       "Reading the bands",
-      '<div class="score-scale"><span class="sev-low">90–100 strong</span><span class="sev-med">60–89 needs attention</span><span class="sev-high">below 60 blockers present</span></div>',
+      "Bands describe assessed-control performance only." +
+        '<div class="score-scale"><span class="sev-low">90–100 strong</span><span class="sev-med">60–89 moderate</span><span class="sev-high">below 60 weak</span></div>',
+    ],
+    [
+      "Bands do not decide readiness",
+      "Deployment readiness is calculated independently: any critical or high-severity failure yields <strong>Not Ready</strong> regardless of the score. A report can score in the moderate band and still be blocked.",
     ],
   ]);
 

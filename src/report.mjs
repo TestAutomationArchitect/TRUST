@@ -10,7 +10,7 @@ import path from "node:path";
 import { summarize, headline } from "./finding.mjs";
 import { getTestMeta, domainForId } from "./catalog.mjs";
 
-export const TOOL = { name: "TRUST", version: "1.0.0", tagline: "Trust Reporting & Unified Security Testing" };
+export const TOOL = { name: "TRUST", version: "1.0.1", tagline: "Trust Reporting & Unified Security Testing" };
 
 /** A URL with its query string dropped — search params can carry tokens. */
 function safeEndpoint(url) {
@@ -86,7 +86,8 @@ export function buildRunReport({ config, profile, findings, requestCount, blocke
     requestCount,
     blockedRequests: blocked,
     summary: summarize(findings),
-    findings: findings.map((f) => ({ ...f, category: getTestMeta(f.id).category, domain: domainForId(f.id) })),
+    // A probe may classify a finding itself; the catalogue is the fallback, not the override.
+    findings: findings.map((f) => ({ ...f, category: f.category ?? getTestMeta(f.id).category, domain: f.domain ?? domainForId(f.id) })),
   };
 }
 

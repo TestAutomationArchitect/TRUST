@@ -12,7 +12,10 @@ import { domainForId } from "../catalog.mjs";
 export function computeScores(allFindings) {
   const domains = new Map();
   for (const f of allFindings) {
-    const domain = domainForId(f.id);
+    // Prefer what the run recorded. Custom probes register their catalogue entries at run
+    // time; at merge time those entries are gone, so re-deriving would bucket every partner
+    // finding under "Other" / "Platform".
+    const domain = f.domain || domainForId(f.id);
     if (!domains.has(domain)) domains.set(domain, { pass: 0, fail: 0, warn: 0, skip: 0, totalWeight: 0, passWeight: 0, blockingFail: false });
     const d = domains.get(domain);
     d[f.status] += 1;

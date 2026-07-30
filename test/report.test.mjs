@@ -135,10 +135,18 @@ test("a tiny run cannot present itself as full posture", () => {
   assert.match(html, /domain-name">Input Handling<\/div>\s*<div class="domain-score na">—</);
 });
 
-test("full coverage drops the qualifier", () => {
+test("coverage counts only controls that could apply to the configured surfaces", () => {
+  // This config declares a web target and nothing else, so mobile, agent and storage
+  // controls are out of scope and must not depress the coverage figure.
   const model = buildModel(new Map([["passive", makeRun("passive", [])]]));
   assert.equal(model.coverage.assessed, 0);
-  assert.ok(model.coverage.applicable > 60, "the denominator is the catalogue, not the run");
+  assert.ok(model.coverage.applicable > 0, "web controls are in scope");
+  assert.ok(
+    model.coverage.applicable < 60,
+    `an API-only target must not be marked down for unconfigured surfaces (applicable=${model.coverage.applicable})`,
+  );
+  assert.ok(!model.coverage.notRunIds.some((id) => id.startsWith("MOBILE-")), "mobile controls are not applicable here");
+  assert.ok(model.coverage.notRunIds.some((id) => id.startsWith("WEB-")), "web controls are");
   assert.equal(model.postureLabel, "Assessed Security Posture");
 });
 
@@ -150,14 +158,15 @@ test("an attack path fires only when every control it depends on is failing", ()
     finding({ id: "STORAGE-CROSS-TENANT-B", title: "tenant isolation", status: "fail", severity: "critical", evidence: "200", remediation: "x", observed: "Another tenant's prefix is readable" }),
   ];
   const html = buildReport(new Map([["all", makeRun("all", chain)]]));
-  assert.match(html, /Corroborated Attack Paths/);
+  assert.match(html, /Correlated Control-Failure Chains/);
+  assert.match(html, /not executed end-to-end/, "the report must not claim more than it executed");
   assert.match(html, /Impersonation → orchestrator bypass → cross-tenant data exposure/);
   assert.match(html, /Corroborated by 3 failing control\(s\)/);
 
   // Break one link: the same three controls, but the storage one now holds.
   const broken = [...chain.slice(0, 2), finding({ id: "STORAGE-CROSS-TENANT-B", title: "tenant isolation", status: "pass", severity: "critical", evidence: "403" })];
   const html2 = buildReport(new Map([["all", makeRun("all", broken)]]));
-  assert.doesNotMatch(html2, /Corroborated Attack Paths/, "a path must not be claimed when a required control holds");
+  assert.doesNotMatch(html2, /Correlated Control-Failure Chains/, "a chain must not be claimed when a required control holds");
 });
 
 test("passing controls never contribute to an attack path", () => {
@@ -167,4 +176,41 @@ test("passing controls never contribute to an attack path", () => {
   ];
   const model = buildModel(new Map([["all", makeRun("all", allPass)]]));
   assert.deepEqual(model.attackPaths, []);
+});
+
+// ── Custom-probe classification must survive the merge ──────────────
+test("a partner finding keeps its domain when the combined report is built", () => {
+  // A custom probe's catalogue entries are registered at run time and are gone by merge
+  // time. The run JSON carries the classification; the merge must trust it rather than
+  // re-deriving it and bucketing every partner finding under Other/Platform.
+  const partner = finding({
+    id: "ACME-GQL-CROSS-TENANT",
+    title: "Tenant B cannot read Tenant A's records",
+    status: "fail",
+    severity: "critical",
+    evidence: "HTTP 200 with foreign tenant data",
+    remediation: "Scope the resolver by tenant claim",
+    observed: "Cross-tenant read is permitted",
+    domain: "Authorization",
+    category: "Authorization — API",
+  });
+  assert.equal(partner.domain, "Authorization", "finding() must carry a probe-supplied domain");
+
+  const run = makeRun("authenticated", [partner]);
+  assert.equal(run.findings[0].domain, "Authorization", "the run JSON must preserve it");
+
+  const model = buildModel(new Map([["authenticated", run]]));
+  assert.ok(model.domainScores.has("Authorization"), "the merge must score it under Authorization");
+  assert.ok(!model.domainScores.get("Platform"), "and must not invent a Platform bucket");
+
+  const html = buildReport(new Map([["authenticated", run]]));
+  assert.match(html, /Authorization/);
+  assert.doesNotMatch(html, /ACME-GQL-CROSS-TENANT[\s\S]{0,400}?>Other</, "the finding must not be filed under Other");
+});
+
+test("an unclassified finding still falls back to the catalogue", () => {
+  const builtin = finding({ id: "API-CROSS-USER", title: "t", status: "fail", severity: "high", evidence: "e", remediation: "r" });
+  assert.equal(builtin.domain, undefined, "no domain is invented when the probe does not supply one");
+  const run = makeRun("authenticated", [builtin]);
+  assert.equal(run.findings[0].domain, "Authorization", "the catalogue fills it in at run time");
 });

@@ -38,7 +38,16 @@ export const OWNER_MAP = [
   [/^AGENT-/, "AI runtime"],
   [/^MOBILE-/, "Mobile platform"],
 ];
-export const ownerFor = (id) => OWNER_MAP.find(([pattern]) => pattern.test(id))?.[1] ?? "Platform";
+/**
+ * The team that owns a finding. Built-in IDs map by prefix; a partner ID will not match any
+ * of them, so fall back to the finding's own trust domain rather than dumping every custom
+ * finding into "Platform".
+ */
+export const ownerFor = (idOrFinding, domain = "") => {
+  const id = typeof idOrFinding === "string" ? idOrFinding : idOrFinding?.id ?? "";
+  const resolved = typeof idOrFinding === "string" ? domain : (idOrFinding?.domain ?? domain);
+  return OWNER_MAP.find(([pattern]) => pattern.test(id))?.[1] ?? resolved ?? "Platform";
+};
 
 const CHEVRON =
   '<svg class="panel-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';

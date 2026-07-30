@@ -115,3 +115,35 @@ test("headline never states a positive assertion for a failing control", () => {
   assert.equal(headline(finding({ id: "A", title: assertion, status: "warn", severity: "low" })), `Not fully verified — ${assertion}`);
   assert.equal(headline(skipped("A", assertion, "no token")), `Not assessed — ${assertion}`);
 });
+
+// ── Redaction reaches every field that can carry a response fragment ─
+test("observed is redacted like evidence", () => {
+  const f = finding({
+    id: "A", title: "t", status: "fail", severity: "high",
+    observed: "Token accepted: authorization: Bearer supersecrettoken1",
+    evidence: "e",
+  });
+  assert.doesNotMatch(f.observed, /supersecrettoken1/);
+  assert.match(f.observed, /\[REDACTED\]/);
+});
+
+test("redact covers cloud and model-provider credential formats", () => {
+  const cases = [
+    ["Azure SAS", "https://x.blob.core.windows.net/c/b?sv=2021-06-08&sig=abcDEF123%2Fxyz%3D&se=2026-01-01", /abcDEF123/],
+    ["Azure SAS in a header", "x-ms-sas: sig=abcDEF123456789xyz", /abcDEF123456789xyz/],
+    ["GCP service account", '{"type":"service_account","private_key":"-----BEGIN PRIVATE KEY-----AAAA"}', /AAAA/],
+    ["Anthropic", "key: sk-ant-api03-abcdefghijklmnopqrstuv", /abcdefghijklmnopqrstuv/],
+    ["HuggingFace", "hf_abcdefghijklmnopqrstuvwx", /hf_abcdefghijklmnop/],
+  ];
+  for (const [name, input, leak] of cases) {
+    assert.doesNotMatch(redact(input), leak, `${name} must be redacted`);
+  }
+});
+
+test("finding() carries an optional probe-supplied classification", () => {
+  const withClass = finding({ id: "X-1", title: "t", status: "pass", domain: "Authorization", category: "Authorization — API" });
+  assert.equal(withClass.domain, "Authorization");
+  assert.equal(withClass.category, "Authorization — API");
+  const without = finding({ id: "X-2", title: "t", status: "pass" });
+  assert.equal("domain" in without, false, "absent rather than empty, so the catalogue fallback still applies");
+});

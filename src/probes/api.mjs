@@ -43,7 +43,14 @@ async function execute(client, api, token, spec, { write = false } = {}) {
 }
 
 /** A GraphQL/REST response that denied the request. */
+// A 429 is the server declining to answer, not the control denying access. Treating it as a
+// denial would report an isolation control as holding when it was never exercised.
+function isThrottled({ status, text }) {
+  return status === 429 || status === 503 || /rate.?limit|too many requests/i.test(text);
+}
+
 function isDenied({ status, text, json }) {
+  if (isThrottled({ status, text })) return false;
   if (status === 401 || status === 403 || status === 404) return true;
   const errors = json?.errors ?? [];
   if (errors.length && /unauthor|not authoriz|forbidden|access denied|permission/i.test(JSON.stringify(errors))) return true;
@@ -312,7 +319,11 @@ export async function runApiProbes(config, client) {
       // Two sources agreeing → confirmed. One source only → probable, reported as a warning
       // so nobody files a ticket on a maybe.
       const confirmedLive = badCredentials && discovery?.advertisesPassword === true;
-      const confirmedClosed = grantRejected || discovery?.advertisesPassword === false;
+      // Cognito user pools omit grant_types_supported from their discovery document, so
+      // corroboration is impossible there. InvalidParameterException from a Cognito endpoint
+      // is itself conclusive: the flow is not enabled on the app client.
+      const cognitoClosed = /InvalidParameterException/i.test(text) && /cognito|amazonaws.com/i.test(pa.endpoint);
+      const confirmedClosed = grantRejected || cognitoClosed || discovery?.advertisesPassword === false;
       const status = confirmedLive ? "fail" : confirmedClosed && !badCredentials ? "pass" : badCredentials || !flowDisabled ? "warn" : "pass";
 
       out.push(

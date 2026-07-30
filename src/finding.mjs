@@ -19,13 +19,26 @@ const REDACTIONS = [
   [/\bAKIA[0-9A-Z]{16}\b/g, "[REDACTED_AWS_KEY_ID]"],
   [/\bASIA[0-9A-Z]{16}\b/g, "[REDACTED_AWS_STS_KEY_ID]"],
   [/\b(gh[pousr]_[A-Za-z0-9]{20,})\b/g, "[REDACTED_GITHUB_TOKEN]"],
+  [/\bsk-ant-[A-Za-z0-9_-]{16,}\b/g, "[REDACTED_ANTHROPIC_KEY]"],
   [/\bsk-[A-Za-z0-9_-]{16,}\b/g, "[REDACTED_API_KEY]"],
+  [/\bhf_[A-Za-z0-9]{16,}\b/g, "[REDACTED_HUGGINGFACE_TOKEN]"],
+  [/\bco-[A-Za-z0-9]{32,}\b/g, "[REDACTED_COHERE_KEY]"],
+  // Azure SAS: the signature and its companions appear in headers and bodies too, not only
+  // after a ? or & in a URL, so match the parameter wherever it occurs.
+  [/\b(sig|se|sp|sv|skoid|sktid|skt|ske|sks|srt|ss)=([A-Za-z0-9%+/=_-]{8,})/gi, "$1=[REDACTED]"],
   [/\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g, "[REDACTED_SLACK_TOKEN]"],
+  // JSON-quoted secrets, whose values may contain spaces and so are missed by the
+  // whitespace-delimited rule below. A service-account key is the canonical case:
+  //   "private_key": "-----BEGIN PRIVATE KEY-----\nMIIE…"
+  [
+    /"([A-Za-z0-9_.-]*(?:pass(?:word|wd)?|secret|api[_-]?key|private[_-]?key|access[_-]?key|client[_-]?secret|token|credential)[A-Za-z0-9_.-]*)"(\s*:\s*)"[^"]{4,}"/gi,
+    '"$1"$2"[REDACTED]"',
+  ],
   // key/value pairs: password=…, "api_key": "…", DB_PASSWORD=…, secret: …
   // The key may carry a prefix/suffix (DB_PASSWORD) and may be quoted ("password": …),
   // so the closing quote belongs to the separator group.
   [
-    /([A-Za-z0-9_.-]*(?:pass(?:word|wd)?|secret|api[_-]?key|access[_-]?key|client[_-]?secret|token|authorization|credential)[A-Za-z0-9_.-]*)("?\s*[:=]\s*)("?)([^\s",;&}]{4,})\3/gi,
+    /([A-Za-z0-9_.-]*(?:pass(?:word|wd)?|secret|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|token|authorization|credential)[A-Za-z0-9_.-]*)("?\s*[:=]\s*)("?)([^\s",;&}]{4,})\3/gi,
     (match, key, sep, quote, value) =>
       // A scheme word or an already-redacted value is left alone — the Bearer rule above owns it.
       /^(Bearer|Basic|Digest|\[REDACTED)/i.test(value) ? match : `${key}${sep}${quote}[REDACTED]${quote}`,
@@ -71,7 +84,7 @@ function stringify(value) {
  *   severity  the impact IF this control fails. It is a property of the control, not of
  *             the outcome, which is why a passing test can legitimately be `critical`.
  */
-export function finding({ id, title, status, severity = "info", evidence = "", remediation = "", observed = "" }) {
+export function finding({ id, title, status, severity = "info", evidence = "", remediation = "", observed = "", domain = "", category = "" }) {
   if (!id) throw new TypeError("finding.id is required");
   if (!title) throw new TypeError(`finding.title is required (id=${id})`);
   if (!STATUSES.includes(status)) {
@@ -86,9 +99,15 @@ export function finding({ id, title, status, severity = "info", evidence = "", r
     status,
     severity,
     // Only meaningful when the control did not hold; a pass has nothing adverse to report.
-    observed: status === "fail" || status === "warn" ? String(observed ?? "") : "",
+    // Redacted like evidence: a probe author will eventually put a response fragment here.
+    observed: status === "fail" || status === "warn" ? redact(observed) : "",
     evidence: redact(evidence),
     remediation: status === "pass" ? "" : String(remediation ?? ""),
+    // A probe may classify an individual finding, overriding the catalogue lookup. This is
+    // what lets one probe report into two domains, and it is what survives into the run JSON
+    // so the combined report does not have to re-derive it from a catalogue it cannot see.
+    ...(domain ? { domain } : {}),
+    ...(category ? { category } : {}),
   };
 }
 

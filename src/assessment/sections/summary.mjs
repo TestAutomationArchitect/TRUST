@@ -50,8 +50,8 @@ ${execBullets.join("\n")}
 </div>
 
 ${attackPathRows ? `<div class="rc-tb-section">
-  <div class="rc-tb-title" style="color:var(--bad);">Corroborated Attack Paths</div>
-  <p class="scope-note">Each path below fires only when every control it depends on is failing in this run. These are combinations of findings already evidenced in this report, not predictions.</p>
+  <div class="rc-tb-title" style="color:var(--bad);">Correlated Control-Failure Chains</div>
+  <p class="scope-note">Each chain fires only when every control it depends on failed in this run. Each component weakness was independently confirmed; the complete chain was <strong>not executed end-to-end</strong>. These are combinations of findings already evidenced in this report, not predictions.</p>
   <table class="rc-tb-table">
 ${attackPathRows}
   </table>
