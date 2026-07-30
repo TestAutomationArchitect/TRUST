@@ -4,7 +4,7 @@ All notable changes are documented here. This project follows the semver contrac
 [docs/VERSIONING.md](docs/VERSIONING.md) — note that finding IDs and severities are part
 of the public API, and any change to a verdict is called out under **Verdict changes**.
 
-## [1.0.0] — unreleased
+## [1.0.0] — 2026-07-30
 
 First distributable release: TRUST is now installable as a package rather than cloned.
 
