@@ -40,6 +40,7 @@ ${STYLE}
     <a class="nav-pill" href="#section-remediation" onclick="navTo(this)">Remediation</a>
     <a class="nav-pill" href="#section-retest" onclick="navTo(this)">Retest</a>
     <a class="nav-pill" href="#section-inventory" onclick="navTo(this)">Inventory</a>
+    <a class="nav-pill" href="#section-trends" onclick="navTo(this)">Trends</a>
     <a class="nav-pill" href="#section-definitions" onclick="navTo(this)">Definitions</a>
   </nav>
 </header>

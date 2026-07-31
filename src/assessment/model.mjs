@@ -109,80 +109,72 @@ export function buildModel(reports, { title = "" } = {}) {
   const blockerDomains = [...new Set(blockers.map((f) => domainOf(f)))].sort((a, b) => domainRankOf(a) - domainRankOf(b));
   const nonBlockerDomains = failDomains.filter((d) => !blockerDomains.includes(d));
 
-  const execBullets = [];
+  // A synopsis, not a list. Assembled deterministically from findings already in this
+  // report — the verdict from readiness, the chain from set intersection over failing IDs,
+  // the exposure statements from the probes' own observed-outcome strings. Detail lives one
+  // section below, filterable, which is where detail belongs; this is what a person reads
+  // before deciding whether to ship.
+  const listOf = (items) =>
+    items.length <= 1 ? items.join("") : items.slice(0, -1).join(", ") + " and " + items[items.length - 1];
+  const SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+  const worstIn = (items) =>
+    [...items].sort((a, b) => (SEV_RANK[a.severity] ?? 5) - (SEV_RANK[b.severity] ?? 5))[0];
+
+  const sentences = [];
   if (fails.length === 0 && warns.length === 0) {
-    execBullets.push(
-      `      <li><strong>No control failed in this run.</strong> ${passes.length} control(s) were validated across ` +
-        `${[...new Set(passes.map((f) => domainOf(f)))].length} trust domain(s). Read this alongside the coverage figure below — it is a statement about what was tested.</li>`,
+    sentences.push(
+      `<strong>No control failed in this run.</strong> ${passes.length} control${passes.length === 1 ? "" : "s"} held across ` +
+        `${[...new Set(passes.map((f) => domainOf(f)))].length} trust domain${
+          [...new Set(passes.map((f) => domainOf(f)))].length === 1 ? "" : "s"
+        }.`,
     );
   } else {
-    // 1. The decision.
-    const verdict =
-      readiness === "not-ready"
-        ? `<strong>Deployment should be blocked.</strong> ${blockers.length} production blocker(s) confirmed across ${blockerDomains.length} trust domain(s)`
-        : readiness === "caution"
-          ? `<strong>Deploy only with a documented remediation plan.</strong> No critical or high-severity control failed, but ${fails.length + warns.length} item(s) need attention`
-          : `<strong>No blocking failure.</strong> ${fails.length} low-severity item(s) recorded`;
-    const verdictDomains = readiness === "not-ready" ? blockerDomains : failDomains;
-    const alsoAffected =
-      readiness === "not-ready" && nonBlockerDomains.length
-        ? ` ${fails.length - blockers.length} further medium or low-severity failure(s) affect ${esc(nonBlockerDomains.join(" and "))}.`
-        : "";
-    execBullets.push(`      <li>${verdict}: ${esc(verdictDomains.join(", "))}.${alsoAffected}</li>`);
+    // The decision, and what it rests on.
+    if (readiness === "not-ready") {
+      const lead = worstIn(blockers);
+      sentences.push(
+        `<strong>Deployment should be blocked.</strong> ${blockers.length} production blocker${blockers.length === 1 ? "" : "s"} ` +
+          `across ${listOf(blockerDomains.map(esc))} — most seriously, ${esc((lead.observed || metaOf(lead).purpose).replace(/[.]$/, "").toLowerCase())}.`,
+      );
+    } else if (readiness === "caution") {
+      sentences.push(
+        `<strong>Deploy only with a documented remediation plan.</strong> No critical or high-severity control failed, ` +
+          `but ${fails.length + warns.length} item${fails.length + warns.length === 1 ? "" : "s"} need attention across ${listOf(failDomains.map(esc))}.`,
+      );
+    } else {
+      sentences.push(`<strong>No blocking failure.</strong> ${fails.length} low-severity item${fails.length === 1 ? "" : "s"} recorded.`);
+    }
 
-    // 2. The compound story, where the evidence supports one.
-    if (attackPaths.length) {
-      const paths = attackPaths
-        .map((p) => `        <li><strong>${esc(p.name)}</strong> — ${esc(p.impact)}</li>`)
-        .join("\n");
-      execBullets.push(
-        `      <li>${attackPaths.length} corroborated attack path${attackPaths.length > 1 ? "s" : ""}, each depending only on controls that failed in this run:\n` +
-          `        <ul class="exec-sub">\n${paths}\n        </ul>\n      </li>`,
+    // The compound story, in one sentence.
+    if (attackPaths.length === 1) {
+      sentences.push(`They correlate into one control-failure chain: ${esc(attackPaths[0].impact.replace(/[.]$/, "").toLowerCase())}.`);
+    } else if (attackPaths.length > 1) {
+      sentences.push(
+        `They correlate into ${attackPaths.length} control-failure chains, the most serious being ${esc(attackPaths[0].name.toLowerCase())}.`,
       );
     }
 
-    // 3. What is exposed, in the probes' own words, grouped by domain and worst-first.
-    const byDomain = new Map();
-    for (const f of fails) {
-      const domain = domainOf(f);
-      if (!byDomain.has(domain)) byDomain.set(domain, []);
-      byDomain.get(domain).push(f);
-    }
-    for (const [domain, items] of [...byDomain.entries()].sort((a, b) => domainRankOf(a[0]) - domainRankOf(b[0]))) {
-      const statements = [...new Set(items.map((f) => (f.observed || metaOf(f).purpose).replace(/.$/, "")))];
-      if (statements.length === 1) {
-        execBullets.push(`      <li><strong>${esc(domain)}</strong>: ${esc(statements[0])}.</li>`);
-      } else {
-        const subs = statements.map((line) => `        <li>${esc(line)}</li>`).join("\n");
-        execBullets.push(
-          `      <li><strong>${esc(domain)}</strong> — ${items.length} control(s) not upheld:\n        <ul class="exec-sub">\n${subs}\n        </ul>\n      </li>`,
-        );
-      }
-    }
-
-    if (warns.length) {
-      const warnCats = new Map();
-      for (const f of warns) {
-        const cat = metaOf(f).category;
-        warnCats.set(cat, (warnCats.get(cat) ?? 0) + 1);
-      }
-      const parts = [...warnCats.entries()].map(([c, n]) => `${c} (${n})`).join(", ");
-      execBullets.push(
-        `      <li>${warns.length} advisory warning${warns.length > 1 ? "s" : ""} in: ${esc(parts)}. Review recommended; no confirmed exploit path.</li>`,
+    // Everything below the blocking line, compressed to counts.
+    const secondary = [];
+    if (readiness === "not-ready" && nonBlockerDomains.length) {
+      secondary.push(
+        `${fails.length - blockers.length} further medium or low-severity failure${fails.length - blockers.length === 1 ? "" : "s"} in ${listOf(nonBlockerDomains.map(esc))}`,
       );
     }
+    if (warns.length) secondary.push(`${warns.length} advisory warning${warns.length === 1 ? "" : "s"} with no confirmed exploit path`);
+    if (secondary.length) sentences.push(`Alongside: ${listOf(secondary)}.`);
   }
+
+  // Always close on what was not established — the most common way a report misleads.
   if (skips.length) {
-    const skipCats = new Map();
-    for (const f of skips) {
-      const cat = metaOf(f).category;
-      skipCats.set(cat, (skipCats.get(cat) ?? 0) + 1);
-    }
-    const parts = [...skipCats.entries()].map(([c, n]) => `${c} (${n})`).join(", ");
-    execBullets.push(
-      `      <li>${skips.length} test${skips.length > 1 ? "s were" : " was"} skipped for missing credentials or unmet preconditions: ${esc(parts)}. These controls remain <em>unvalidated</em>, not proven safe.</li>`,
+    sentences.push(
+      `${skips.length} control${skips.length === 1 ? "" : "s"} could not run and ${skips.length === 1 ? "remains" : "remain"} <em>unvalidated</em> — untested, not proven safe.`,
     );
   }
+
+  const execSynopsis = sentences.join(" ");
+  // Kept for the section renderer's older shape; the synopsis is the value that renders.
+  const execBullets = [`      <li>${execSynopsis}</li>`];
 
   // ── root causes ───────────────────────────────────────────────────
   const rootCauseDomains = new Map();
@@ -541,6 +533,7 @@ export function buildModel(reports, { title = "" } = {}) {
     sortedCategories,
     findingCards,
     execBullets,
+    execSynopsis,
     rootCauseRows,
     trustVerifiedItems,
     profileRows,

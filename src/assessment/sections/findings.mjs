@@ -2,7 +2,7 @@
  * Detailed findings, grouped by category with the worst categories first. Every card is collapsed until asked for.
  */
 
-import { sectionCard } from "../html.mjs";
+import { sectionCard, filterBar } from "../html.mjs";
 
 export function renderFindings(model) {
   const { findingCards, fails, warns, allFindings } = model;
@@ -15,6 +15,7 @@ export function renderFindings(model) {
   <span class="panel-hint">Cards are collapsed — open one for purpose, evidence and remediation.</span>
   <button class="inv-toggle" onclick="toggleAllFindings(this)">Expand all</button>
 </div>
+${filterBar({ scope: "findings", placeholder: "Filter by ID, control or category…", count: allFindings.length, noun: "controls" })}
 ${findingCards}`,
   });
 }

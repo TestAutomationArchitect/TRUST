@@ -1,18 +1,25 @@
 /**
- * Trust summary — posture score, impact tiers, executive reading, root causes, verified controls.
- * This is the section an executive reads; everything below it is evidence for these claims.
+ * The executive dashboard — posture score, domain scores, readiness, coverage, executive
+ * reading, correlated chains, root causes and verified controls.
+ *
+ * Deliberately NOT a collapsible card. Everything below it is evidence and collapses; this
+ * is the part a reader must see on open, without a click. The Posture nav pill still scrolls
+ * here, and collapses the evidence sections on the way.
  */
 
-import { esc, sectionCard } from "../html.mjs";
+import { esc } from "../html.mjs";
 
 export function renderSummary(model) {
-  const { fails, warns, passes, overallScore, hasCriticalFail, hasHighFail, hasMediumFail, readiness, readinessLabel, execBullets, rootCauseRows, trustVerifiedItems, domainScores, coverage, postureLabel, attackPathRows } = model;
-  return sectionCard({
-    id: "section-summary",
-    title: `Security Trust Assessment`,
-    badge: `<span class="sc-chip sc-chip-score">${overallScore}</span><span class="sc-chip sc-chip-${readiness}">${readinessLabel}</span>`,
-    open: true,
-    body: `
+  const { fails, warns, passes, overallScore, hasCriticalFail, hasHighFail, hasMediumFail, readiness, readinessLabel, execSynopsis, rootCauseRows, trustVerifiedItems, domainScores, coverage, postureLabel, attackPathRows } = model;
+  return `<section class="section dashboard" id="section-summary">
+  <div class="dashboard-head">
+    <h2 class="dashboard-title">Security Trust Assessment</h2>
+    <div class="dashboard-meta">
+      <span class="sc-chip sc-chip-score">${overallScore}</span>
+      <span class="sc-chip sc-chip-${readiness}">${readinessLabel}</span>
+      <span class="sc-chip">${coverage.percent}% coverage</span>
+    </div>
+  </div>
 <div class="posture-hero">
   <div class="posture-score">
     <div class="score-num" data-tip="Weighted score: pass=100%, warn=50%, fail=0%, by severity" style="color:${overallScore >= 90 ? "var(--ok)" : overallScore >= 60 ? "var(--warn)" : "var(--bad)"}">${overallScore}</div>
@@ -43,10 +50,8 @@ ${[...domainScores.entries()]
 ${coverage.partial ? `<div class="callout callout-warn coverage-note"><strong>Read the score with its coverage.</strong> ${coverage.assessed} of ${coverage.applicable} applicable controls reached a verdict (${coverage.percent}%): ${coverage.unvalidated} skipped for missing credentials or unmet preconditions, and ${coverage.notRun} not exercised by the profiles that ran. ${coverage.domainsAssessed} of ${coverage.domainsKnown} trust domains were assessed. The score describes the controls that ran — it is not a statement about the untested remainder.</div>` : ""}
 
 <div class="exec-panel">
-  <div class="exec-interp-title">Executive Interpretation</div>
-  <ul class="exec-bullets">
-${execBullets.join("\n")}
-  </ul>
+  <div class="exec-interp-title">Executive Summary</div>
+  <p class="exec-synopsis">${execSynopsis}</p>
 </div>
 
 ${attackPathRows ? `<div class="rc-tb-section">
@@ -69,6 +74,6 @@ ${rootCauseRows}
   <div class="tb-grid">
 ${trustVerifiedItems}
   </div>
-</div>`,
-  });
+</div>
+</section>`;
 }

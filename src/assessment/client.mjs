@@ -112,6 +112,80 @@ window.addEventListener('afterprint', function () {
   printState = [];
 });
 
+// ── Generic list filters (findings, remediation, retest) ────────────
+// Two shapes share one implementation. A table list hides rows; a card list hides cards AND
+// the category header above them, because a heading with nothing under it reads as an empty
+// category rather than a filtered one. Finding cards also carry their status in a class.
+function filterState(scope) {
+  var bar = document.querySelector('.flt-bar[data-scope="' + scope + '"]');
+  if (!bar) return null;
+  var search = document.getElementById(scope + '-search');
+  var active = [];
+  bar.querySelectorAll('.flt-chip.active').forEach(function (c) { active.push(c.dataset.status); });
+  return { bar: bar, q: ((search && search.value) || '').trim().toLowerCase(), active: active };
+}
+
+function applyFilter(scope) {
+  var state = filterState(scope);
+  if (!state) return;
+  var container = state.bar.parentElement;
+  var shown = 0;
+
+  // Card lists: each <details class="finding-card f-STATUS"> under a category header.
+  var cards = container.querySelectorAll('details.finding-card');
+  if (cards.length) {
+    cards.forEach(function (card) {
+      var status = (card.className.match(/f-(fail|warn|pass|skip)/) || [])[1] || '';
+      var matchStatus = state.active.length === 0 || state.active.indexOf(status) !== -1;
+      var matchText = !state.q || card.textContent.toLowerCase().indexOf(state.q) !== -1;
+      var visible = matchStatus && matchText;
+      card.style.display = visible ? '' : 'none';
+      if (visible) shown++;
+    });
+    // A header owns every card until the next header.
+    container.querySelectorAll('.cat-header').forEach(function (header) {
+      var any = false;
+      var node = header.nextElementSibling;
+      while (node && !node.classList.contains('cat-header')) {
+        if (node.classList.contains('finding-card') && node.style.display !== 'none') { any = true; break; }
+        node = node.nextElementSibling;
+      }
+      header.style.display = any ? '' : 'none';
+    });
+  }
+
+  // Table lists.
+  var rows = container.querySelectorAll('table tbody tr');
+  rows.forEach(function (row) {
+    if (row.querySelector('td[colspan]')) return; // empty-state row
+    var text = row.textContent.toLowerCase();
+    var status = (row.querySelector('.tag') || {}).textContent || '';
+    var matchStatus = state.active.length === 0 || state.active.indexOf(status.trim().toLowerCase()) !== -1;
+    var visible = matchStatus && (!state.q || text.indexOf(state.q) !== -1);
+    row.style.display = visible ? '' : 'none';
+    if (visible) shown++;
+  });
+
+  var count = document.getElementById(scope + '-count');
+  if (count) count.textContent = shown + ' shown';
+  var clear = document.getElementById(scope + '-clear');
+  if (clear) clear.disabled = !state.q && state.active.length === 0;
+}
+
+function toggleFilterChip(el) {
+  el.classList.toggle('active');
+  applyFilter(el.dataset.scope);
+}
+
+function clearFilter(scope) {
+  var state = filterState(scope);
+  if (!state) return;
+  var search = document.getElementById(scope + '-search');
+  if (search) search.value = '';
+  state.bar.querySelectorAll('.flt-chip.active').forEach(function (c) { c.classList.remove('active'); });
+  applyFilter(scope);
+}
+
 // ── Inventory filters ───────────────────────────────────────────────
 // Each dropdown holds either "" (no filter) or one or more pipe-separated values, so a
 // combined option like "fail|warn" needs no special case. Rows carry data-status /

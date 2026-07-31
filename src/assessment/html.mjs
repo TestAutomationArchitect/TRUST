@@ -49,6 +49,24 @@ export const ownerFor = (idOrFinding, domain = "") => {
   return OWNER_MAP.find(([pattern]) => pattern.test(id))?.[1] ?? resolved ?? "Platform";
 };
 
+/**
+ * A filter toolbar for a long list.
+ *
+ * `scope` names the container the filter applies to. Card lists and table lists behave
+ * differently — a card list must also hide the category header once every card under it is
+ * filtered out, or the reader is left with headings above empty space.
+ */
+export function filterBar({ scope, placeholder = "Filter…", statuses = true, count = 0, noun = "items" }) {
+  const chip = (value, label, cls) =>
+    `<button class="flt-chip ${cls}" data-scope="${scope}" data-status="${value}" onclick="toggleFilterChip(this)">${label}</button>`;
+  return `<div class="flt-bar" data-scope="${scope}">
+  <input class="flt-search" type="search" placeholder="${esc(placeholder)}" oninput="applyFilter('${scope}')" id="${scope}-search"/>
+  ${statuses ? `<div class="flt-chips">${chip("fail", "Fail", "c-bad")}${chip("warn", "Warn", "c-warn")}${chip("pass", "Pass", "c-ok")}${chip("skip", "Skip", "c-skip")}</div>` : ""}
+  <button class="flt-clear" id="${scope}-clear" onclick="clearFilter('${scope}')" disabled>Clear</button>
+  <span class="flt-count" id="${scope}-count">${count} ${esc(noun)}</span>
+</div>`;
+}
+
 const CHEVRON =
   '<svg class="panel-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
 

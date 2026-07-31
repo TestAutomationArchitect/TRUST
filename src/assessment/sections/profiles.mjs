@@ -9,7 +9,7 @@ export function renderProfiles(model) {
   return sectionCard({
     id: "section-profiles",
     title: `Profile Run Summary`,
-    badge: `<span class="sc-chip">${totalRequests} requests</span>`,
+    badge: `<span class="sc-chip">${profileRows.split("<tr>").length - 1} profiles</span><span class="sc-chip">${totalRequests} requests</span>`,
     open: false,
     body: `<div class="table-card"><div class="table-wrap">
 <table>

@@ -6,9 +6,11 @@
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { summarize, headline } from "./finding.mjs";
-import { getTestMeta, domainForId } from "./catalog.mjs";
+import { getTestMeta, domainForId, CATALOG } from "./catalog.mjs";
 
 export const TOOL = { name: "TRUST", version: "1.0.1", tagline: "Trust Reporting & Unified Security Testing" };
 
@@ -59,6 +61,49 @@ export function deriveSurfaces(config) {
   return surfaces;
 }
 
+/**
+ * Evidence-chain metadata.
+ *
+ * A filed report has to answer "what exactly was assessed, when, and against which build?"
+ * long after the run. None of this is derivable later, so it is captured at run time:
+ *
+ *   runId          identity for this run, and the key trends compare across
+ *   timezone       the ISO timestamps are UTC; this records where the run happened
+ *   commit         the consumer's checked-out revision — which build was tested
+ *   configHash     detects a config edited between runs, which invalidates a comparison
+ *   catalogHash    detects a catalogue change, which can move findings between domains
+ *
+ * Nothing here may contain a secret: the config hash is computed over the config, which by
+ * design holds env var *names* and never values.
+ */
+function evidenceChain(config) {
+  const commit =
+    process.env.GITHUB_SHA ??
+    process.env.CI_COMMIT_SHA ??
+    process.env.BUILD_SOURCEVERSION ??
+    (() => {
+      try {
+        // No shell: a repo path with a space must not become an injection point.
+        return execFileSync("git", ["rev-parse", "HEAD"], { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+      } catch {
+        return null; // not a git checkout, or git is unavailable — both are fine
+      }
+    })();
+
+  const digest = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
+
+  return {
+    runId: randomUUID(),
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
+    commit,
+    branch: process.env.GITHUB_REF_NAME ?? process.env.CI_COMMIT_REF_NAME ?? null,
+    ci: Boolean(process.env.CI),
+    configHash: digest(config),
+    catalogHash: digest(Object.keys(CATALOG).sort()),
+    catalogSize: Object.keys(CATALOG).length,
+  };
+}
+
 /** Build the canonical JSON document for a run. */
 export function buildRunReport({ config, profile, findings, requestCount, blocked = [], startedAt, finishedAt }) {
   return {
@@ -80,6 +125,7 @@ export function buildRunReport({ config, profile, findings, requestCount, blocke
       allowAgentInvocations: config.safety.allowAgentInvocations,
       productionOverride: config.safety.productionOverride,
     },
+    ...evidenceChain(config),
     startedAt,
     generatedAt: finishedAt,
     durationMs: new Date(finishedAt) - new Date(startedAt),

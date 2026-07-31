@@ -37,7 +37,7 @@ const USAGE = `${TOOL.name} ${TOOL.version} — ${TOOL.tagline}
                 [--out reports] [--dry-run] [--quiet]
                 run a profile, write JSON + HTML, exit 2 on a blocking failure
 
-  trust report  [--dir reports] [--out <file.html>] [--title <text>]
+  trust report  [--dir reports] [--out <file.html>] [--title <text>] [--no-trends]
                 merge the latest run per profile into one Trust Assessment
 
   Secrets: .env in the working directory is loaded automatically (real environment
@@ -68,6 +68,7 @@ export function parseArgs(argv) {
     domain: "",
     envFile: ".env",
     noEnv: false,
+    noTrends: false,
     dryRun: false,
     quiet: false,
     help: false,
@@ -106,6 +107,7 @@ export function parseArgs(argv) {
       // ours alone; --env-file still works for a direct `node src/cli.mjs` invocation.
       case "--env": case "--env-file": opts.envFile = next(); break;
       case "--no-env": opts.noEnv = true; break;
+      case "--no-trends": opts.noTrends = true; break;
       case "--dry-run": opts.dryRun = true; break;
       case "--quiet": opts.quiet = true; break;
       case "--help": case "-h": opts.help = true; break;
@@ -207,7 +209,7 @@ async function commandRun(opts) {
 }
 
 async function commandReport(opts) {
-  const { outPath, profiles } = await writeCombinedReport({ dir: opts.dir, out: opts.out, title: opts.title });
+  const { outPath, profiles } = await writeCombinedReport({ dir: opts.dir, out: opts.out, title: opts.title, noTrends: opts.noTrends });
   log(`Merged ${profiles.length} profile(s): ${profiles.join(", ")}`);
   console.log(outPath);
   return 0;

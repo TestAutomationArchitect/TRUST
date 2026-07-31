@@ -38,7 +38,7 @@ export function renderInventory(model) {
   return sectionCard({
     id: "section-inventory",
     title: `Complete Test Inventory`,
-    badge: `<span class="sc-chip">${allFindings.length} tests</span>`,
+    badge: `${inventoryFacets.statuses.map((s) => `<span class="sc-chip sc-chip-${s.value === "fail" ? "bad" : s.value === "warn" ? "warn" : s.value === "pass" ? "ready" : ""}">${s.count} ${s.value}</span>`).join("")}<span class="sc-chip">${allFindings.length} total</span>`,
     open: false,
     body: `<div class="table-card">
 <div class="inv-toolbar">
