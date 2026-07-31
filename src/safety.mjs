@@ -24,6 +24,7 @@ export const DEFAULT_SAFETY = {
   requestTimeoutMs: 30000,
   allowWrites: false,
   allowAgentInvocations: false,
+  allowDenialTests: false,
   productionOverride: false,
 };
 
@@ -47,18 +48,9 @@ export class ConfigError extends Error {
 
 /** Read and parse a config file, applying safety defaults. */
 export async function loadConfig(configPath) {
-  let raw;
-  try {
-    raw = await readFile(configPath, "utf8");
-  } catch (error) {
-    throw new ConfigError(`Cannot read config ${configPath}: ${error.message}`);
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(stripJsonComments(raw));
-  } catch (error) {
-    throw new ConfigError(`Config ${configPath} is not valid JSON: ${error.message}`);
-  }
+  // resolveExtends handles reading and parsing, including an inheritance chain.
+  const { resolveExtends } = await import("./config.mjs");
+  const parsed = await resolveExtends(configPath);
   parsed.safety = { ...DEFAULT_SAFETY, ...(parsed.safety ?? {}) };
   return parsed;
 }
@@ -116,8 +108,17 @@ export function validateConfig(config) {
   }
 
   const s = config.safety;
-  if (!Number.isInteger(s.maxRequests) || s.maxRequests < 1 || s.maxRequests > 5000) {
-    throw new ConfigError("safety.maxRequests must be an integer between 1 and 5000");
+  // A number caps the whole run; a map caps per profile, so a long web sweep cannot exhaust
+  // the budget before the storage and agent suites execute.
+  const caps = typeof s.maxRequests === "object" && s.maxRequests !== null ? Object.values(s.maxRequests) : [s.maxRequests];
+  if (caps.length === 0) throw new ConfigError("safety.maxRequests must not be an empty object");
+  for (const cap of caps) {
+    if (!Number.isInteger(cap) || cap < 1 || cap > 5000) {
+      throw new ConfigError("every safety.maxRequests value must be an integer between 1 and 5000");
+    }
+  }
+  for (const [suite, budget] of Object.entries(s.budgets ?? {})) {
+    if (!Number.isInteger(budget) || budget < 1) throw new ConfigError(`safety.budgets.${suite} must be a positive integer`);
   }
   if (typeof s.minimumDelayMs !== "number" || s.minimumDelayMs < 50) {
     throw new ConfigError("safety.minimumDelayMs must be >= 50");
@@ -140,6 +141,9 @@ export function validateConfig(config) {
   }
   if (s.allowWrites === true) advisories.push("safety.allowWrites is enabled — mutating requests are permitted.");
   if (s.allowAgentInvocations === true) advisories.push("safety.allowAgentInvocations is enabled — the harness will invoke LLM agents.");
+  if (s.allowDenialTests === true) {
+    advisories.push("safety.allowDenialTests is enabled — mutations that are expected to be refused will be attempted.");
+  }
 
   for (const host of targets.allowedHosts) {
     if (/^https?:\/\//i.test(host)) {
@@ -167,10 +171,27 @@ export class SafeHttpClient {
   #lastRequestAt = 0;
   #blocked = [];
 
-  constructor(config) {
+  #suite = null;
+  #suiteCounts = new Map();
+
+  constructor(config, { budget = null } = {}) {
     this.config = config;
     this.safety = config.safety ?? { ...DEFAULT_SAFETY };
     this.allowedHosts = new Set(config.targets?.allowedHosts ?? []);
+    // A resolved budget from config.mjs; falling back to the scalar keeps direct library use
+    // working without one.
+    this.budget = budget ?? { total: typeof this.safety.maxRequests === "number" ? this.safety.maxRequests : 100, suites: null };
+  }
+
+  /** Probe suites announce themselves so a per-suite budget can be enforced and reported. */
+  beginSuite(name) {
+    this.#suite = name;
+    if (!this.#suiteCounts.has(name)) this.#suiteCounts.set(name, 0);
+  }
+
+  /** Requests spent per suite — surfaced in the run so an exhausted budget is explainable. */
+  get suiteSpend() {
+    return Object.fromEntries(this.#suiteCounts);
   }
 
   get requestCount() {
@@ -178,7 +199,10 @@ export class SafeHttpClient {
   }
 
   get remainingRequests() {
-    return Math.max(0, this.safety.maxRequests - this.#count);
+    const overall = Math.max(0, this.budget.total - this.#count);
+    const suiteCap = this.budget.suites?.[this.#suite];
+    if (!suiteCap) return overall;
+    return Math.max(0, Math.min(overall, suiteCap - (this.#suiteCounts.get(this.#suite) ?? 0)));
   }
 
   /** Requests refused by a guard, for reporting. */
@@ -211,26 +235,44 @@ export class SafeHttpClient {
    *
    * Extra init options understood by TRUST (not passed to fetch):
    *   write: true            this request mutates state → requires safety.allowWrites
+   *   denialTest: true       this request is expected to be REFUSED by the target. Allowed
+   *                          under safety.allowDenialTests without enabling writes generally,
+   *                          because the whole point is that nothing should be written. If the
+   *                          target accepts it, that acceptance is the finding.
    *   agentInvocation: true  this request invokes an LLM/agent → requires allowAgentInvocations
    */
   async request(url, init = {}) {
-    const { write = false, agentInvocation = false, ...fetchInit } = init;
+    const { write = false, agentInvocation = false, denialTest = false, ...fetchInit } = init;
     const method = (fetchInit.method ?? "GET").toUpperCase();
     const parsed = this.assertUrlAllowed(url);
 
     const mutating = write === true || WRITE_METHODS.has(method);
-    if (mutating && this.safety.allowWrites !== true) {
-      this.#refuse(`${method} ${parsed.pathname}`, "writes are disabled (safety.allowWrites=false)");
+    // A denial test asserts the target refuses a mutation. Requiring allowWrites for it forced
+    // teams to enable every destructive path just to prove one control holds, so it has its
+    // own switch — narrower, and the request is expected to change nothing.
+    const denialAllowed = denialTest === true && this.safety.allowDenialTests === true;
+    if (mutating && this.safety.allowWrites !== true && !denialAllowed) {
+      this.#refuse(
+        `${method} ${parsed.pathname}`,
+        denialTest === true
+          ? "denial tests are disabled (set safety.allowDenialTests, or safety.allowWrites)"
+          : "writes are disabled (safety.allowWrites=false)",
+      );
     }
     if (agentInvocation && this.safety.allowAgentInvocations !== true) {
       this.#refuse(`${method} ${parsed.pathname}`, "agent invocations are disabled (safety.allowAgentInvocations=false)");
     }
-    if (this.#count >= this.safety.maxRequests) {
-      this.#refuse(`${method} ${parsed.pathname}`, `request cap reached (${this.safety.maxRequests})`);
+    if (this.#count >= this.budget.total) {
+      this.#refuse(`${method} ${parsed.pathname}`, `run request cap reached (${this.budget.total})`);
+    }
+    const suiteCap = this.budget.suites?.[this.#suite];
+    if (suiteCap && (this.#suiteCounts.get(this.#suite) ?? 0) >= suiteCap) {
+      this.#refuse(`${method} ${parsed.pathname}`, `budget for the "${this.#suite}" suite exhausted (${suiteCap})`);
     }
 
     await this.#throttle();
     this.#count += 1;
+    if (this.#suite) this.#suiteCounts.set(this.#suite, (this.#suiteCounts.get(this.#suite) ?? 0) + 1);
     this.#lastRequestAt = Date.now();
 
     const signal = AbortSignal.timeout(this.safety.requestTimeoutMs);
@@ -258,11 +300,12 @@ export class SafeHttpClient {
     if (!this.allowedHosts.has(hostname)) {
       throw new SafetyError(`Host "${hostname}" is not in targets.allowedHosts`);
     }
-    if (this.#count >= this.safety.maxRequests) {
-      this.#refuse(`TLS ${hostname}`, `request cap reached (${this.safety.maxRequests})`);
+    if (this.#count >= this.budget.total) {
+      this.#refuse(`TLS ${hostname}`, `run request cap reached (${this.budget.total})`);
     }
     await this.#throttle();
     this.#count += 1;
+    if (this.#suite) this.#suiteCounts.set(this.#suite, (this.#suiteCounts.get(this.#suite) ?? 0) + 1);
     this.#lastRequestAt = Date.now();
 
     return new Promise((resolve, reject) => {

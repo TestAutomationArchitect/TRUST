@@ -10,6 +10,7 @@
  */
 
 import { finding, skipped, inconclusive, canary } from "../finding.mjs";
+import { section } from "../config.mjs";
 
 const DEFAULT_SYSTEM_PROMPT_PATTERNS = [
   "you are an? (?:helpful |ai )?(?:assistant|agent)",
@@ -88,7 +89,9 @@ function matchAny(patterns, text) {
 }
 
 export async function runAgentProbes(config, client) {
-  const agent = config.agent;
+  // The canonical section, resolved through conventional spellings — an app that calls it
+  // "agentCore" should not have to duplicate it under "agent".
+  const { value: agent, key: agentKey } = section(config, "agent");
   if (!agent?.runtimeEndpoint && !agent?.endpointTemplate) {
     return [skipped("AGENT-CONFIG", "AI agent probe suite", "config.agent.runtimeEndpoint is not configured")];
   }

@@ -10,6 +10,7 @@
  */
 
 import { finding, skipped, inconclusive } from "../finding.mjs";
+import { section } from "../config.mjs";
 
 function authHeaders(storage, token) {
   const scheme = storage.authScheme ?? "Bearer";
@@ -34,7 +35,9 @@ function readable(status, text) {
 }
 
 export async function runStorageProbes(config, client) {
-  const storage = config.storage;
+  // The canonical section, resolved through conventional spellings — an app that calls it
+  // "s3" should not have to duplicate it under "storage".
+  const { value: storage, key: storageKey } = section(config, "storage");
   if (!storage || (!storage.baseUrl && !storage.targets)) {
     return [skipped("STORAGE-CONFIG", "Storage isolation probe suite", "config.storage is not configured")];
   }

@@ -16,7 +16,7 @@
  *     probes exercise real inputs rather than invented ones.
  */
 
-import { finding, skipped, inconclusive, canary } from "../finding.mjs";
+import { finding, skipped, inconclusive, canary, sweepVerdict } from "../finding.mjs";
 
 /** Query parameters worth testing when the target exposes none of its own. */
 const FALLBACK_PARAMS = ["q", "search", "id", "name", "page", "filter", "sort", "lang", "view"];
@@ -106,11 +106,13 @@ export async function runInjectionProbes(config, client) {
     { name: "js-string", payload: `';${xssMark}//`, signature: new RegExp(`';${xssMark}`) },
   ];
   const reflected = [];
+  let reflectedPerformed = 0;
   let xssAttempts = 0;
   for (const param of params) {
     for (const variant of xssVariants) {
       if (budget() < 3) break;
       xssAttempts += 1;
+      reflectedPerformed += 1;
       const url = new URL(baseUrl.href);
       url.searchParams.set(param, variant.payload);
       try {
@@ -134,7 +136,7 @@ export async function runInjectionProbes(config, client) {
       id: "INJECT-REFLECTED-XSS",
       observed: "User input is reflected into HTML unencoded",
       title: "User input is not reflected into HTML unencoded",
-      status: reflected.length ? "fail" : "pass",
+      status: reflected.length ? "fail" : reflectedPerformed === 0 ? "skip" : "pass",
       severity: "high",
       evidence: reflected.length
         ? reflected.map((r) => `?${r.param}= (${r.variant} variant) → HTTP ${r.status}, payload reflected raw:\n…${r.window}…`).join("\n\n")
@@ -151,9 +153,11 @@ export async function runInjectionProbes(config, client) {
   // query uncontrolled — which is a finding regardless of whether it is exploitable.
   const sqlPayloads = ["'", "'\"", "')", "1'--"];
   const sqlHits = [];
+  let sqlHitsPerformed = 0;
   for (const param of params) {
     if (budget() < 3) break;
     for (const payload of sqlPayloads) {
+      sqlHitsPerformed += 1;
       const url = new URL(baseUrl.href);
       url.searchParams.set(param, payload);
       try {
@@ -173,7 +177,7 @@ export async function runInjectionProbes(config, client) {
       id: "INJECT-SQL-ERROR",
       observed: "Untrusted input surfaces database errors",
       title: "Untrusted input does not surface database errors",
-      status: sqlHits.length ? "fail" : "pass",
+      status: sqlHits.length ? "fail" : sqlHitsPerformed === 0 ? "skip" : "pass",
       severity: "critical",
       evidence: sqlHits.length
         ? sqlHits.map((h) => `?${h.param}=${h.payload} → HTTP ${h.status}, ${h.matched.join(", ")}\n${h.snippet}`).join("\n\n")
@@ -188,9 +192,11 @@ export async function runInjectionProbes(config, client) {
   // If 7*7 comes back as 49, input is being evaluated rather than rendered.
   const sstiPayloads = ["${7*7}", "{{7*7}}", "<%=7*7%>", "#{7*7}"];
   const sstiHits = [];
+  let sstiHitsPerformed = 0;
   for (const param of params.slice(0, 3)) {
     if (budget() < 3) break;
     for (const payload of sstiPayloads) {
+      sstiHitsPerformed += 1;
       const url = new URL(baseUrl.href);
       const marker = `${payload}`;
       url.searchParams.set(param, marker);
@@ -211,7 +217,7 @@ export async function runInjectionProbes(config, client) {
       id: "INJECT-TEMPLATE",
       observed: "Untrusted input is evaluated as a template expression",
       title: "Untrusted input is not evaluated as a template expression",
-      status: sstiHits.length ? "fail" : "pass",
+      status: sstiHits.length ? "fail" : sstiHitsPerformed === 0 ? "skip" : "pass",
       severity: "critical",
       evidence: sstiHits.length
         ? sstiHits.map((h) => `?${h.param}=${h.payload} → HTTP ${h.status}, expression evaluated to 49`).join("\n")
@@ -230,10 +236,12 @@ export async function runInjectionProbes(config, client) {
     "..\\..\\..\\..\\windows\\win.ini",
   ];
   const traversalHits = [];
+  let traversalHitsPerformed = 0;
   const traversalParams = config.injection?.fileParams ?? params.filter((p) => /file|path|doc|name|template|page|view|download/i.test(p));
   for (const param of traversalParams.length ? traversalParams : params.slice(0, 2)) {
     if (budget() < 3) break;
     for (const payload of traversalPayloads) {
+      traversalHitsPerformed += 1;
       const url = new URL(baseUrl.href);
       url.searchParams.set(param, payload);
       try {
@@ -253,7 +261,7 @@ export async function runInjectionProbes(config, client) {
       id: "INJECT-PATH-TRAVERSAL",
       observed: "File parameters escape the base directory",
       title: "File parameters cannot escape their base directory",
-      status: traversalHits.length ? "fail" : "pass",
+      status: traversalHits.length ? "fail" : traversalHitsPerformed === 0 ? "skip" : "pass",
       severity: "critical",
       evidence: traversalHits.length
         ? traversalHits.map((h) => `?${h.param}=${h.payload} → HTTP ${h.status}, returned ${h.matched.join(", ")}`).join("\n")

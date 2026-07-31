@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { summarize, headline } from "./finding.mjs";
 import { getTestMeta, domainForId, CATALOG } from "./catalog.mjs";
+import { section } from "./config.mjs";
 
 export const TOOL = { name: "TRUST", version: "1.0.1", tagline: "Trust Reporting & Unified Security Testing" };
 
@@ -34,7 +35,15 @@ function safeEndpoint(url) {
  * have tested an architecture that was never configured. Recorded per run and merged by
  * the combined report.
  */
-export function deriveSurfaces(config) {
+export function deriveSurfaces(rawConfig) {
+  // Resolve aliases first, so a target configured as "graphql" still appears in Scope.
+  const config = {
+    ...rawConfig,
+    api: section(rawConfig, "api").value,
+    agent: section(rawConfig, "agent").value,
+    storage: section(rawConfig, "storage").value,
+    mobile: section(rawConfig, "mobile").value,
+  };
   const surfaces = [];
   const add = (kind, label, target, detail = "") => {
     if (target) surfaces.push({ kind, label, target: safeEndpoint(target), detail });
@@ -105,7 +114,7 @@ function evidenceChain(config) {
 }
 
 /** Build the canonical JSON document for a run. */
-export function buildRunReport({ config, profile, findings, requestCount, blocked = [], startedAt, finishedAt }) {
+export function buildRunReport({ config, profile, findings, requestCount, blocked = [], budget = null, sectionAliases = {}, startedAt, finishedAt }) {
   return {
     tool: TOOL.name,
     toolVersion: TOOL.version,
@@ -130,6 +139,10 @@ export function buildRunReport({ config, profile, findings, requestCount, blocke
     generatedAt: finishedAt,
     durationMs: new Date(finishedAt) - new Date(startedAt),
     requestCount,
+    budget,
+    // Which config key each canonical section resolved to, so "api" resolving to "graphql" is
+    // visible rather than inferred.
+    sectionAliases,
     blockedRequests: blocked,
     summary: summarize(findings),
     // A probe may classify a finding itself; the catalogue is the fallback, not the override.

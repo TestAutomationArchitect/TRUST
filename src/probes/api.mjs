@@ -5,14 +5,15 @@
  * GraphQL API, a REST API, or both. Every isolation test needs two identities.
  */
 
-import { finding, skipped, inconclusive } from "../finding.mjs";
+import { finding, skipped, inconclusive, sweepVerdict } from "../finding.mjs";
+import { section } from "../config.mjs";
 
 /**
  * Execute one request spec.
  *   GraphQL: { query, variables }             → POST endpoint
  *   REST:    { method, path, body, headers }  → method endpoint+path
  */
-async function execute(client, api, token, spec, { write = false } = {}) {
+async function execute(client, api, token, spec, { write = false, denialTest = false } = {}) {
   const scheme = api.authScheme ?? "Bearer";
   const authHeader = api.authHeader ?? "authorization";
   const headers = {
@@ -31,7 +32,7 @@ async function execute(client, api, token, spec, { write = false } = {}) {
       ? JSON.stringify(spec.body)
       : undefined;
 
-  const response = await client.request(url, { method, headers, body: payload, write });
+  const response = await client.request(url, { method, headers, body: payload, write, denialTest });
   const text = await response.text();
   let json = null;
   try {
@@ -81,7 +82,9 @@ function deepFind(value, predicate, hits = []) {
 }
 
 export async function runApiProbes(config, client) {
-  const api = config.api;
+  // The canonical section, resolved through conventional spellings — an app that calls it
+  // "graphql" should not have to duplicate it under "api".
+  const { value: api, key: apiKey } = section(config, "api");
   if (!api?.endpoint) return [skipped("API-CONFIG", "API authorisation probe suite", "config.api.endpoint is not configured")];
 
   const tokenA = api.tokenAEnv ? process.env[api.tokenAEnv] : undefined;
@@ -167,17 +170,18 @@ export async function runApiProbes(config, client) {
   // ── Permission mutation by a non-admin ────────────────────────────
   if (!api.permissionMutation) {
     out.push(skipped("API-PERMISSION-MUTATION", "Non-admin users cannot modify permissions", "config.api.permissionMutation is not defined"));
-  } else if (config.safety.allowWrites !== true) {
+  } else if (config.safety.allowWrites !== true && config.safety.allowDenialTests !== true) {
     out.push(
       skipped(
         "API-PERMISSION-MUTATION",
         "Non-admin users cannot modify permissions",
-        "safety.allowWrites is false — a mutation attempt would be blocked by the harness",
+        "neither safety.allowDenialTests nor safety.allowWrites is set — the harness would block the attempt. " +
+          "allowDenialTests is the narrower switch: it permits a mutation that is expected to be refused, without enabling writes generally",
       ),
     );
   } else {
     try {
-      const result = await execute(client, api, tokenA, api.permissionMutation, { write: true });
+      const result = await execute(client, api, tokenA, api.permissionMutation, { write: true, denialTest: true });
       const blocked = isDenied(result) || Boolean(result.json?.errors?.length);
       out.push(
         finding({
@@ -369,8 +373,10 @@ export async function runApiProbes(config, client) {
     "/altair",
   ];
   const exposedSpecs = [];
+  let inventoryChecked = 0;
   for (const path of inventoryPaths) {
     if (client.remainingRequests < 4) break;
+    inventoryChecked += 1;
     try {
       const response = await client.request(new URL(path, api.endpoint).href);
       if (response.status !== 200) continue;
@@ -381,22 +387,37 @@ export async function runApiProbes(config, client) {
     }
   }
   const specsOnly = exposedSpecs.filter((s) => !s.path.includes("openid-configuration"));
+  const inventorySweep = sweepVerdict({ hits: specsOnly.length, performed: inventoryChecked, planned: inventoryPaths.length });
+  if (inventorySweep === "not-run") {
+    // The sweep was cut short by a guard, so "nothing found" says nothing about the target.
+    out.push(
+      skipped(
+        "API-INVENTORY-EXPOSED",
+        "API schema and console endpoints are not publicly exposed",
+        `the request budget ran out before any of the ${inventoryPaths.length} paths could be checked — raise safety.maxRequests, or the api suite budget, and re-run`,
+      ),
+    );
+  } else {
   out.push(
     finding({
       id: "API-INVENTORY-EXPOSED",
       observed: "API schema or console endpoints are publicly reachable",
       title: "API schema and console endpoints are not publicly exposed",
-      status: specsOnly.length ? "warn" : "pass",
+      // A sweep that stopped early cannot claim the control holds. The status scale already has
+        // a word for that: WARN is "could not be fully validated".
+        status: specsOnly.length || inventorySweep === "partial" ? "warn" : "pass",
       severity: "low",
       evidence: exposedSpecs.length
         ? exposedSpecs.map((s) => `${s.path} → HTTP 200: ${s.snippet}`).join("\n") +
           "\n(A discovery document at /.well-known/openid-configuration is expected and is not counted as a finding.)"
-        : `Checked ${inventoryPaths.length} conventional paths; none returned a schema or console.`,
+        : `Checked ${inventoryChecked} of ${inventoryPaths.length} conventional paths; none returned a schema or console.` +
+          (inventorySweep === "partial" ? " The sweep stopped early on the request budget, so this is not a complete answer." : ""),
       remediation: specsOnly.length
         ? "Serve the API specification and any GraphQL console only in development, or gate them behind authentication."
         : "",
     }),
   );
+  }
 
   // ── Excessive data exposure ───────────────────────────────────────
   // Does a normal read return fields the client has no business receiving?

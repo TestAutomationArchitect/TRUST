@@ -8,9 +8,12 @@
  */
 
 import { finding, skipped, inconclusive } from "../finding.mjs";
+import { section } from "../config.mjs";
 
 export async function runMobileProbes(config, client) {
-  const mobile = config.mobile;
+  // The canonical section, resolved through conventional spellings — an app that calls it
+  // "app" should not have to duplicate it under "mobile".
+  const { value: mobile, key: mobileKey } = section(config, "mobile");
   if (!mobile) return [skipped("MOBILE-CONFIG", "Mobile probe suite", "config.mobile is not configured")];
 
   const out = [];

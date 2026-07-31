@@ -9,6 +9,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { SafeHttpClient, SafetyError, validateConfig } from "./safety.mjs";
+import { resolveBudget, resolvedSections } from "./config.mjs";
 import { exitCodeFor, summarize } from "./finding.mjs";
 import { buildRunReport, writeRunReport } from "./report.mjs";
 import { registerCatalogEntries, registerDomains, registerRootCauses, registerSummaryRules } from "./catalog.mjs";
@@ -142,11 +143,15 @@ export async function runProfile({ config, profile, out = "", baseDir = process.
   const selected = resolveProbes(profile, [...custom, ...probes.map(defineProbe)]);
   if (selected.length === 0) throw new Error(`Profile "${profile}" selected no probe modules`);
 
-  const client = new SafeHttpClient(config);
+  // The budget depends on the profile: a per-profile cap stops a long web sweep exhausting
+  // the run before storage and agent probes execute.
+  const budget = resolveBudget(config, profile);
+  const client = new SafeHttpClient(config, { budget });
   const startedAt = new Date().toISOString();
   const findings = [];
 
   for (const probe of selected) {
+    client.beginSuite(probe.name);
     onEvent({ type: "module", name: probe.name, label: probe.label });
     let produced;
     try {
@@ -176,6 +181,8 @@ export async function runProfile({ config, profile, out = "", baseDir = process.
     findings,
     requestCount: client.requestCount,
     blocked: client.blocked,
+    budget: { ...budget, spentBySuite: client.suiteSpend },
+    sectionAliases: resolvedSections(config),
     startedAt,
     finishedAt: new Date().toISOString(),
   });

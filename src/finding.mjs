@@ -136,6 +136,23 @@ export function inconclusive(id, title, reason, remediation = "Re-run once the p
   return finding({ id, title, status: "warn", severity: "low", evidence: reason, remediation });
 }
 
+/**
+ * The verdict for a sweep that may not have completed.
+ *
+ * Loop-based probes stop early when the request budget runs low and swallow per-request
+ * errors so one bad path cannot abort a suite. Both make "nothing found" indistinguishable
+ * from "nothing checked", and the probe then reports a PASS for work it never did — the exact
+ * failure mode that let an exhausted budget look like a clean bill of health.
+ *
+ * A sweep that performed no checks is not a pass; it is a skip. A partial sweep can still
+ * report a positive finding (a hit is a hit) but must say how far it got.
+ */
+export function sweepVerdict({ hits, performed, planned }) {
+  if (hits > 0) return "found";
+  if (performed === 0) return "not-run";
+  return performed < planned ? "partial" : "complete";
+}
+
 /** Unique marker used by injection and leak probes. */
 export function canary(label = "CANARY") {
   return `${label}-${crypto.randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase()}`;

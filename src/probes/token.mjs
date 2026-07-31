@@ -16,6 +16,7 @@
  */
 
 import { finding, skipped } from "../finding.mjs";
+import { section } from "../config.mjs";
 
 /** Decode a JWT without verifying it. Returns null for opaque tokens. */
 export function decodeJwt(token) {
@@ -47,14 +48,20 @@ const BROAD_SCOPE = /(^|[\s:/])(\*|admin|superuser|root|full_access|all)([\s:/]|
 
 /** Which tokens are configured, across every section, without duplicating a value. */
 function collectTokens(config) {
+  // Sections resolve through their conventional spellings, so tokens declared under
+  // "graphql" or "agentCore" are inspected just like those under "api" or "agent".
+  const api = section(config, "api").value;
+  const storage = section(config, "storage").value;
+  const agent = section(config, "agent").value;
+  const mobile = section(config, "mobile").value;
   const sources = [
-    ["A", config.api?.tokenAEnv, "api"],
-    ["B", config.api?.tokenBEnv, "api"],
-    ["A", config.storage?.tokenAEnv, "storage"],
-    ["B", config.storage?.tokenBEnv, "storage"],
-    ["A", config.agent?.accessTokenAEnv, "agent"],
-    ["B", config.agent?.accessTokenBEnv, "agent"],
-    ["A", config.mobile?.tokenEnv, "mobile"],
+    ["A", api?.tokenAEnv, "api"],
+    ["B", api?.tokenBEnv, "api"],
+    ["A", storage?.tokenAEnv, "storage"],
+    ["B", storage?.tokenBEnv, "storage"],
+    ["A", agent?.accessTokenAEnv, "agent"],
+    ["B", agent?.accessTokenBEnv, "agent"],
+    ["A", mobile?.tokenEnv, "mobile"],
   ];
   const out = [];
   for (const [identity, envName, section] of sources) {

@@ -20,6 +20,7 @@ import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { loadConfig, validateConfig, SafetyError, ConfigError } from "./safety.mjs";
 import { runProfile, PROFILES } from "./runner.mjs";
+import { resolveBudget, resolvedSections } from "./config.mjs";
 import { writeCombinedReport } from "./assessment/index.mjs";
 import { scaffold } from "./init.mjs";
 import { listCatalog } from "./catalog.mjs";
@@ -165,14 +166,20 @@ async function commandRun(opts) {
   const config = await loadConfig(opts.config);
   const profile = PROFILES[opts.profile];
   const advisories = validateConfig(config);
+  const budget = resolveBudget(config, opts.profile);
+  const aliases = resolvedSections(config);
 
   log(paint(1, `${TOOL.name} ${TOOL.version}`), `— ${config.name} (${config.environment})`);
   log(`  target   ${config.targets.web}`);
   log(`  profile  ${opts.profile} — ${profile.description}`);
   log(
-    `  safety   max ${config.safety.maxRequests} requests · ${config.safety.minimumDelayMs}ms floor · ` +
+    `  safety   max ${budget.total} requests${budget.suites ? ` (per-suite: ${Object.entries(budget.suites).map(([k, v]) => k + " " + v).join(", ")})` : ""} · ${config.safety.minimumDelayMs}ms floor · ` +
       `writes ${config.safety.allowWrites ? "ON" : "off"} · agent invocations ${config.safety.allowAgentInvocations ? "ON" : "off"}`,
   );
+  if (Object.keys(aliases).length) {
+    log(paint(90, `  config   ${Object.entries(aliases).map(([canonical, key]) => canonical + " → " + key).join(", ")}`));
+  }
+  if (config.extendsChain) log(paint(90, `  extends  ${config.extendsChain.length} file(s) merged`));
   for (const advisory of advisories) log(paint(33, `  ! ${advisory}`));
 
   if (opts.dryRun) {
