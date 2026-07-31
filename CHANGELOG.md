@@ -13,6 +13,11 @@ here comes from partner field testing of 1.0.
 A minor version, not a major: every addition is additive, no finding ID moved, and no existing
 verdict changed. A run configured for 1.0.1 produces the same results on 1.5.0.
 
+Published by hand rather than from CI, so **this version carries no provenance attestation** —
+`npm audit signatures` will report none for 1.5.0. The package's trusted publisher was not yet
+accepting this repository's OIDC identity at release time; the workflow and the release contents
+are otherwise unchanged, and attestation returns as soon as that is configured.
+
 ### Upgrading
 
 Nothing is required. Three things are worth adopting, in this order:

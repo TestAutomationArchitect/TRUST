@@ -18,11 +18,15 @@ npm i -D trust-verify        # in the repo whose target you are testing
 npx trust-verify init --target https://dev.example.com
 ```
 
-Nothing is compiled and there is no install script, so `npm ci --ignore-scripts` works. Releases
-after 1.0.0 are published from CI via [npm trusted publishing](https://docs.npmjs.com/trusted-publishers)
-— no long-lived token exists anywhere — and carry a provenance attestation you can verify with
-`npm audit signatures`. 1.0.0 was published manually to create the package, because a trusted
-publisher cannot be attached to a package that does not yet exist; it has no attestation.
+Nothing is compiled and there is no install script, so `npm ci --ignore-scripts` works.
+
+Releases are published from CI via [npm trusted publishing](https://docs.npmjs.com/trusted-publishers),
+so no long-lived token exists anywhere, and they carry a provenance attestation you can verify
+with `npm audit signatures`. Where a release was published by hand instead — because a trusted
+publisher cannot be attached to a package that does not yet exist, or was not yet configured —
+the changelog says so for that version, and `npm audit signatures` will report no attestation.
+Check it rather than taking this paragraph's word for it.
+
 Airgapped partners can install the checksummed tarball attached to each release:
 `npm i ./trust-verify-1.5.0.tgz`.
 
