@@ -55,6 +55,37 @@ jobs:
           npm install -g npm@latest
           npm --version
 
+      # setup-node writes an .npmrc containing
+      #   //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
+      # and NODE_AUTH_TOKEN is unset here, because trusted publishing is the whole point.
+      # npm then sees auth already configured for the registry, skips the OIDC exchange, and
+      # PUTs with an empty credential — which the registry answers with a 404 that reads like
+      # a missing package. Removing the line leaves the registry set and no credential, which
+      # is the state that makes npm reach for OIDC.
+      - name: Clear the empty token line so npm reaches for OIDC
+        run: |
+          for f in "$HOME/.npmrc" ".npmrc"; do
+            [ -f "$f" ] && sed -i '/_authToken/d' "$f" && echo "cleaned $f"
+          done
+          npm config set registry https://registry.npmjs.org/
+          echo "--- effective npmrc ---"
+          npm config list
+
+      # Which of the two possible causes is in play, stated before the publish rather than
+      # inferred from its failure: no OIDC request URL means the job lacks id-token: write;
+      # an OIDC URL plus a 404 means the publisher on npm does not match this workflow's claim.
+      - name: OIDC availability
+        run: |
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo "OIDC token endpoint present — the job can request an identity."
+          else
+            echo "::error::No OIDC token endpoint. id-token: write is not in effect for this job."
+            exit 1
+          fi
+          echo "repository: $GITHUB_REPOSITORY"
+          echo "workflow:   $(basename "$GITHUB_WORKFLOW_REF" | cut -d@ -f1)"
+          echo "environment must match the npm trusted-publisher config exactly: npm"
+
       # No dependencies to install — that is the point. `npm ci` would fail without a
       # lockfile, so assert the invariant instead.
       - name: Assert dependency-free
