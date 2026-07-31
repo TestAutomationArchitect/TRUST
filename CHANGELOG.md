@@ -6,7 +6,15 @@ of the public API, and any change to a verdict is called out under **Verdict cha
 
 ## [1.0.1] — 2026-07-30
 
-Correctness release from partner field testing. No new capability.
+Renamed to `trust-verify` and published unscoped. The previous scope named the author
+rather than the product, the inverse of the usual convention (`@sentry/node`,
+`@playwright/test`), and read as a personal project on the install line. Security tools
+are conventionally unscoped single names. The CLI binary is unchanged, so `trust run`
+and `trust report` work exactly as before; only the install name moves.
+`@automationarchitect/trust` 1.0.0 was unpublished inside npm's 72-hour window, with no
+dependents.
+
+Plus correctness fixes from partner field testing. No new capability.
 
 ### Fixed
 
@@ -65,7 +73,7 @@ First distributable release: TRUST is now installable as a package rather than c
 
 ### Added
 
-- **Library API** (`@automationarchitect/trust`) — `runProfile()`, `defineProbe()`, `loadConfig()`,
+- **Library API** (`trust-verify`) — `runProfile()`, `defineProbe()`, `loadConfig()`,
   `validateConfig()`, `finding()`, `writeCombinedReport()` and the catalogue registration
   helpers, so a partner can embed TRUST in an existing harness instead of shelling out.
 - **`trust init`** — scaffolds `config/<env>.json`, `.env.example`, an example org-specific

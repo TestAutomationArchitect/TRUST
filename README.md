@@ -5,7 +5,7 @@
 TRUST turns a target into a **Trust Assessment**: a posture score, a deployment-readiness verdict, architectural root causes, and per-finding evidence with remediation.
 
 ```bash
-npx @automationarchitect/trust init --target https://dev.example.com   # scaffold config + .env template
+npx trust-verify init --target https://dev.example.com   # scaffold config + .env template
 trust run    --config config/dev.json --profile passive     # probe, write JSON + HTML
 trust report --dir reports                                  # merge into one Trust Assessment
 ```
@@ -13,11 +13,11 @@ trust report --dir reports                                  # merge into one Tru
 ## Install
 
 ```bash
-npm i -D @automationarchitect/trust        # in the repo whose target you are testing
-npx @automationarchitect/trust init --target https://dev.example.com
+npm i -D trust-verify        # in the repo whose target you are testing
+npx trust-verify init --target https://dev.example.com
 ```
 
-Nothing is compiled and there is no install script, so `npm ci --ignore-scripts` works. Releases from 1.0.1 onward are published from CI via [npm trusted publishing](https://docs.npmjs.com/trusted-publishers) — no long-lived token exists anywhere — and carry a provenance attestation you can verify with `npm audit signatures`. 1.0.0 was published manually to create the package, because a trusted publisher cannot be attached to a package that does not yet exist; it has no attestation. Airgapped partners can install the checksummed tarball attached to each GitHub release: `npm i ./automationarchitect-trust-1.0.0.tgz`.
+Nothing is compiled and there is no install script, so `npm ci --ignore-scripts` works. Releases from 1.0.1 onward are published from CI via [npm trusted publishing](https://docs.npmjs.com/trusted-publishers) — no long-lived token exists anywhere — and carry a provenance attestation you can verify with `npm audit signatures`. 1.0.0 was published manually to create the package, because a trusted publisher cannot be attached to a package that does not yet exist; it has no attestation. Airgapped partners can install the checksummed tarball attached to each GitHub release: `npm i ./trust-verify-1.0.1.tgz`.
 
 > **Before your first publish**, confirm the npm scope exists and you can publish to it (`npm org ls testautomationarchitect`). `scripts/preflight.mjs` refuses to publish a package that still carries a placeholder name, has gained a dependency, or would ship secrets.
 
@@ -35,7 +35,7 @@ Nothing is compiled and there is no install script, so `npm ci --ignore-scripts`
 `runProfile()` never writes to the console and never calls `process.exit`, so it embeds cleanly in an existing harness:
 
 ```js
-import { loadConfig, runProfile, writeCombinedReport } from "@automationarchitect/trust";
+import { loadConfig, runProfile, writeCombinedReport } from "trust-verify";
 
 const config = await loadConfig("config/dev.json");
 for (const profile of ["passive", "authenticated"]) {
@@ -59,7 +59,7 @@ Partners add their own tests by pointing config at a probe module — resolved r
 ```
 
 ```js
-import { defineProbe, finding, skipped } from "@automationarchitect/trust";
+import { defineProbe, finding, skipped } from "trust-verify";
 
 export default defineProbe({
   name: "acme-sso",

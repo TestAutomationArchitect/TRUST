@@ -12,6 +12,8 @@ name: Publish
 #   Workflow:    publish.yml
 #   Environment: npm          (must match the environment: below)
 #
+# The package is unscoped, so no --access flag is needed.
+#
 # Note: npm's trusted-publisher settings live on the package, so a package that has never
 # been published may need one manual release first (`npm publish --otp=<code>`) before the
 # publisher can be configured. Every release after that needs no credential.
@@ -93,7 +95,7 @@ jobs:
       # what makes it possible, and provenance is generated as part of the exchange.
       - name: Publish to npm via trusted publishing
         if: startsWith(github.ref, 'refs/tags/v') && github.event.inputs.dry_run != 'true'
-        run: npm publish --access public
+        run: npm publish
 
       # Airgapped partners install the checksummed tarball instead of using a registry.
       - name: Attach tarball to the release

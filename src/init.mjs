@@ -99,7 +99,7 @@ export const EXAMPLE_PROBE = `/**
  *   - Verdicts are pattern matches on status/headers/body. Never ask a model.
  *   - Any isolation claim needs two identities; any leak claim needs a canary().
  */
-import { defineProbe, finding, skipped, canary } from "@automationarchitect/trust";
+import { defineProbe, finding, skipped, canary } from "trust-verify";
 
 export default defineProbe({
   name: "example",

@@ -1,5 +1,5 @@
 {
-  "name": "@automationarchitect/trust",
+  "name": "trust-verify",
   "version": "1.0.1",
   "description": "TRUST — Trust Reporting & Unified Security Testing. Zero-dependency security verification for web, API, storage, AI-agent and mobile targets.",
   "keywords": [
@@ -50,7 +50,6 @@
     ".env.example"
   ],
   "publishConfig": {
-    "access": "public",
     "provenance": true
   },
   "scripts": {

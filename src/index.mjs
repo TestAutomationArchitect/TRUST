@@ -4,7 +4,7 @@
  * Everything importable from the package root is here. Anything not exported from this
  * file is internal and may change in a minor release.
  *
- *   import { runProfile, loadConfig, defineProbe, finding } from "@automationarchitect/trust";
+ *   import { runProfile, loadConfig, defineProbe, finding } from "trust-verify";
  *
  *   const config = await loadConfig("config/dev.json");
  *   const { report, exitCode } = await runProfile({ config, profile: "passive", out: "reports" });
