@@ -11,6 +11,21 @@ documents, triaged in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ### Added
 
+- **SARIF 2.1.0 and JUnit export** (`--sarif`, `--junit` on `run` and `report`). Findings land in
+  a partner's security dashboard and CI test view instead of an HTML file someone has to
+  remember to open. Only failures carry a SARIF `level`, since a passing CRITICAL control is
+  normal here and must not paint a dashboard red; results are anchored to the config rather than
+  to a fabricated source line; each carries a stable fingerprint so a dashboard de-duplicates
+  across runs.
+- **Baselines** (`trust baseline`, `--baseline` on `run` and `report`). The gate becomes "nothing
+  got worse", which is a promise a team can keep while it works through inherited findings.
+  Fixed findings are reported as loudly as new ones, a warning that becomes a failure is
+  *worsened* rather than accepted, and a baselined finding whose profile did not run is reported
+  as absent rather than fixed.
+- **`registerAttackPaths()`.** Every other catalogue facet was extensible and this one was not,
+  so an org whose architecture has a control-failure chain the built-ins do not describe had no
+  way to say so. String IDs are matched whole, since hand-anchoring is the mistake that makes a
+  path silently never match.
 - **Declared isolation boundaries.** `config.isolation` states an authorisation boundary and
   TRUST supplies the test, the verdict and the report entry — `record-ownership`,
   `prefix-scoped-storage`, `enumeration`, `mutation-guard` and `identity-injection`. The
@@ -79,6 +94,14 @@ documents, triaged in [docs/ROADMAP.md](docs/ROADMAP.md).
   nothing and its value was read as an environment name. The flag is `--dotenv`; `--env` belongs
   to `trust init`.
 - **The token probe shadowed the imported `section` resolver** with a loop variable.
+- **The run JSON dropped the credential provenance** the runner had already computed, so a
+  reader could not tell how a run had authenticated. Names, kinds and expiry now travel in the
+  report — never tokens.
+- **Coverage counted IdP controls against targets with no IdP configured**, the same defect
+  1.0.1 fixed for mobile and agent probes. The IdP is now its own declared surface.
+- **Correlation data in evidence.** Cognito identity IDs and AWS account IDs in ARNs are
+  redacted. Bare UUIDs deliberately are not: TRUST plants canaries and session identifiers in
+  its own evidence, and blanket redaction would erase the proof along with the risk.
 - **The agent probe module was missing its `auth` imports**, so any run selecting the agent
   profile would have thrown `credentialFor is not defined`. Introduced with the auth strategies
   above and caught by the first test to exercise that module; it never reached a release.

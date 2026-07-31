@@ -217,6 +217,32 @@ export function registerRootCauses(mapping) {
   return ROOT_CAUSE_MAP;
 }
 
+/**
+ * Declare a control-failure chain of your own.
+ *
+ * Every other catalogue facet is extensible and this one was not, so an org whose architecture
+ * has a chain the built-ins do not describe had no way to say so. `requires` / `anyOf` /
+ * `alsoAnyOf` take regular expressions or strings; a string is matched as a whole ID, which is
+ * the common case and avoids anchoring mistakes that silently never match.
+ */
+export function registerAttackPaths(paths) {
+  const escape = (text) => String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const asPatterns = (list) => (list ?? []).map((entry) => (entry instanceof RegExp ? entry : new RegExp(`^${escape(entry)}$`)));
+  for (const path of [paths].flat().filter(Boolean)) {
+    if (!path.id || !path.name) throw new TypeError("registerAttackPaths requires id and name on every path");
+    ATTACK_PATHS.push({
+      blocker: false,
+      steps: [],
+      impact: "",
+      ...path,
+      requires: asPatterns(path.requires),
+      ...(path.anyOf ? { anyOf: asPatterns(path.anyOf) } : {}),
+      ...(path.alsoAnyOf ? { alsoAnyOf: asPatterns(path.alsoAnyOf) } : {}),
+    });
+  }
+  return ATTACK_PATHS;
+}
+
 /** Collapse a family of near-identical passing titles into one statement. */
 export function registerSummaryRules(rules) {
   SUMMARY_RULES.push(...rules);

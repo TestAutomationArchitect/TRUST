@@ -54,6 +54,15 @@ export function deriveSurfaces(rawConfig) {
     add("api", `API — ${config.api.kind ?? "graphql"}`, config.api.endpoint, config.api.tokenBEnv ? "two identities configured" : "single identity");
   }
   if (config.api?.passwordAuth?.endpoint) add("auth", "Identity provider — token endpoint", config.api.passwordAuth.endpoint);
+  // The IdP is its own surface: its controls are the provider's configuration, not the
+  // application's, and counting them when no IdP is declared would mark a run down for
+  // controls that cannot apply to it.
+  if (config.idp) {
+    add("idp", "Identity provider — OIDC configuration", config.idp.issuer ?? config.idp.discoveryUrl ?? config.idp.loginUrl ?? config.targets?.web, config.idp.cognito ? "Cognito user pool declared" : "");
+  }
+  if (Array.isArray(config.isolation) && config.isolation.length) {
+    add("isolation", "Declared isolation boundaries", config.targets?.web, `${config.isolation.length} boundar${config.isolation.length === 1 ? "y" : "ies"}`);
+  }
   if (config.storage) {
     add("storage", "Object storage", config.storage.baseUrl ?? config.storage.publicListingUrl, `${config.storage.targets?.length ?? 0} isolation target(s)`);
   }
@@ -114,7 +123,7 @@ function evidenceChain(config) {
 }
 
 /** Build the canonical JSON document for a run. */
-export function buildRunReport({ config, profile, findings, requestCount, blocked = [], budget = null, sectionAliases = {}, startedAt, finishedAt }) {
+export function buildRunReport({ config, profile, findings, requestCount, blocked = [], budget = null, sectionAliases = {}, credentials = [], startedAt, finishedAt }) {
   return {
     tool: TOOL.name,
     toolVersion: TOOL.version,
@@ -143,6 +152,10 @@ export function buildRunReport({ config, profile, findings, requestCount, blocke
     // Which config key each canonical section resolved to, so "api" resolving to "graphql" is
     // visible rather than inferred.
     sectionAliases,
+    // How each identity was obtained, and when it expires — names, kinds and expiry only. A
+    // reader asking "was this run authenticated as who it claims?" should not have to guess,
+    // and a token must never appear in a document that gets forwarded.
+    credentials,
     blockedRequests: blocked,
     summary: summarize(findings),
     // A probe may classify a finding itself; the catalogue is the fallback, not the override.

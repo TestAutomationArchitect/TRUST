@@ -6,6 +6,7 @@
  *   trust run    --config config/dev.json --profile passive [--out reports] [--dry-run] [--quiet]
  *   trust report --dir reports [--out file.html] [--title "…"]
  *   trust tokens --config config/dev.json [--out .trust-credentials.env]
+ *   trust baseline --dir reports [--out .trust-baseline.json]
  *   trust catalog [--json] [--domain Authorization]
  *
  * `trust --config … --profile …` with no subcommand is equivalent to `trust run`.
@@ -23,16 +24,19 @@ import { pathToFileURL } from "node:url";
 import { loadConfig, validateConfig, SafetyError, ConfigError } from "./safety.mjs";
 import { runProfile, PROFILES } from "./runner.mjs";
 import { resolveBudget, resolvedSections } from "./config.mjs";
-import { writeCombinedReport } from "./assessment/index.mjs";
+import { writeCombinedReport, loadReports } from "./assessment/index.mjs";
 import { scaffold } from "./init.mjs";
 import { runPreflight } from "./preflight.mjs";
+import { toSarif } from "./export/sarif.mjs";
+import { toJUnit } from "./export/junit.mjs";
+import { buildBaseline, loadBaseline, writeBaseline, diffAgainstBaseline, exitCodeForDiff } from "./baseline.mjs";
 import { resolveAuth, exportNameFor } from "./auth/index.mjs";
 import { SafeHttpClient } from "./safety.mjs";
 import { listCatalog } from "./catalog.mjs";
 import { TOOL } from "./report.mjs";
 import { loadEnv } from "./env.mjs";
 
-const COMMANDS = ["init", "run", "report", "catalog", "preflight", "validate", "tokens", "help", "version"];
+const COMMANDS = ["init", "run", "report", "catalog", "preflight", "validate", "tokens", "baseline", "help", "version"];
 
 const USAGE = `${TOOL.name} ${TOOL.version} — ${TOOL.tagline}
 
@@ -41,10 +45,13 @@ const USAGE = `${TOOL.name} ${TOOL.version} — ${TOOL.tagline}
 
   trust run     --config <path> --profile <${Object.keys(PROFILES).join("|")}>
                 [--out reports] [--dry-run] [--quiet]
+                [--baseline <file>] [--sarif <file>] [--junit <file>]
                 run a profile, write JSON + HTML, exit 2 on a blocking failure
+                (with --baseline, only on a blocking failure that is *new*)
 
   trust report  [--dir reports] [--out <file.html>] [--title <text>]
                 [--trends-dir .trends] [--no-trends]
+                [--baseline <file>] [--sarif <file>] [--junit <file>]
                 merge the latest run per profile into one Trust Assessment
 
   Secrets: .env in the working directory is loaded automatically (real environment
@@ -62,6 +69,10 @@ const USAGE = `${TOOL.name} ${TOOL.version} — ${TOOL.tagline}
                 acquire every declared auth strategy once and write the tokens to a
                 file (mode 600), so a CI job authenticates once and every later step
                 reuses it. Tokens are never printed.
+
+  trust baseline --dir reports [--out .trust-baseline.json] [--note "…"]
+                record today's findings as accepted, so the gate means "nothing got
+                worse" rather than "nothing is wrong"
 
   trust catalog [--json] [--domain <trust domain>]
                 list every known test with its category, domain and purpose
@@ -86,6 +97,10 @@ export function parseArgs(argv) {
     json: false,
     domain: "",
     envFile: ".env",
+    baseline: "",
+    sarif: "",
+    junit: "",
+    note: "",
     noEnv: false,
     noTrends: false,
     offline: false,
@@ -120,6 +135,10 @@ export function parseArgs(argv) {
       case "--name": opts.name = next(); break;
       case "--env": case "--environment": opts.env = next(); break;
       case "--domain": opts.domain = next(); break;
+      case "--baseline": opts.baseline = next(); break;
+      case "--sarif": opts.sarif = next(); break;
+      case "--junit": opts.junit = next(); break;
+      case "--note": opts.note = next(); break;
       case "--force": opts.force = true; break;
       case "--no-probe": opts.withProbe = false; break;
       case "--json": opts.json = true; break;
@@ -228,6 +247,17 @@ async function commandRun(opts) {
     },
   });
 
+  await writeExports(opts, [result.report], opts.config);
+
+  // A baseline turns the gate into "nothing got worse". Everything is still reported; what
+  // changes is only which findings can block the build.
+  let exitCode = result.exitCode;
+  if (opts.baseline) {
+    const diff = diffAgainstBaseline([result.report], await loadBaseline(opts.baseline));
+    exitCode = exitCodeForDiff(diff);
+    logDiff(diff);
+  }
+
   const { summary, paths } = result;
   const failDomains = [...new Set(result.report.findings.filter((f) => f.status === "fail").map((f) => f.domain))];
   log("");
@@ -239,7 +269,39 @@ async function commandRun(opts) {
   log(`  ${paths.jsonPath}`);
   log(`  ${paths.htmlPath}`);
   console.log(paths.jsonPath);
-  return result.exitCode;
+  return exitCode;
+}
+
+/** Write SARIF and JUnit alongside the run's own JSON, when asked for. */
+async function writeExports(opts, reports, configPath) {
+  if (opts.sarif) {
+    const sarif = toSarif(reports, { configPath: configPath || "trust.config.json", toolVersion: TOOL.version });
+    await writeFile(opts.sarif, `${JSON.stringify(sarif, null, 2)}
+`);
+    log(paint(90, `  sarif    ${opts.sarif} — ${sarif.runs[0].results.length} result(s)`));
+  }
+  if (opts.junit) {
+    await writeFile(opts.junit, toJUnit(reports));
+    log(paint(90, `  junit    ${opts.junit}`));
+  }
+}
+
+/** What changed against the baseline. Fixed findings are reported as loudly as new ones. */
+function logDiff(diff) {
+  log("");
+  log(
+    `  baseline: ${diff.fresh.length ? paint(31, `${diff.fresh.length} new`) : paint(32, "0 new")} · ` +
+      `${diff.worsened.length ? paint(31, `${diff.worsened.length} worsened`) : `${diff.worsened.length} worsened`} · ` +
+      `${paint(90, `${diff.known.length} known`)} · ${diff.fixed.length ? paint(32, `${diff.fixed.length} fixed`) : "0 fixed"}`,
+  );
+  for (const f of diff.fresh) log(paint(31, `    new      ${f.severity.padEnd(8)} ${f.id} — ${f.title}`));
+  for (const f of diff.worsened) log(paint(31, `    worsened ${f.severity.padEnd(8)} ${f.id} — was ${f.was}, now ${f.status}`));
+  for (const f of diff.fixed) log(paint(32, `    fixed    ${(f.severity ?? "").padEnd(8)} ${f.id} — ${f.title}`));
+  if (diff.notRun?.length) {
+    // Not fixed — not looked for. Saying so is the difference between a gate a team trusts and
+    // one that congratulates them for skipping a profile.
+    log(paint(90, `    ${diff.notRun.length} baselined finding(s) belong to profiles this run did not execute`));
+  }
 }
 
 async function commandPreflight(opts, { reach }) {
@@ -322,6 +384,41 @@ async function commandReport(opts) {
   const { outPath, profiles, trendsDir } = await writeCombinedReport({ dir: opts.dir, out: opts.out, title: opts.title, noTrends: opts.noTrends, trendsDir: opts.trendsDir });
   log(`Merged ${profiles.length} profile(s): ${profiles.join(", ")}`);
   if (!opts.noTrends) log(paint(90, `  history  ${trendsDir}/trends.json — restore and persist this in CI, or every run looks like the first`));
+
+  // Exporting from `report` covers every profile at once, which is what a CI job wants to
+  // upload — one SARIF file for the whole assessment rather than one per profile.
+  let exitCode = 0;
+  if (opts.sarif || opts.junit || opts.baseline) {
+    const reports = [...(await loadReports(opts.dir)).values()];
+    await writeExports(opts, reports, opts.config);
+    if (opts.baseline) {
+      const diff = diffAgainstBaseline(reports, await loadBaseline(opts.baseline));
+      exitCode = exitCodeForDiff(diff);
+      logDiff(diff);
+    }
+  }
+  console.log(outPath);
+  return exitCode;
+}
+
+/**
+ * Record today's findings as accepted. A team adopting TRUST mid-life inherits findings it did
+ * not cause; without this the choice is to fail every build until the backlog clears, or to stop
+ * gating on the tool at all.
+ */
+async function commandBaseline(opts) {
+  const reports = [...(await loadReports(opts.dir)).values()];
+  if (reports.length === 0) throw new ConfigError(`No TRUST reports found in ${opts.dir} — run a profile first`);
+  const baseline = buildBaseline(reports, { note: opts.note });
+  const outPath = await writeBaseline(baseline, opts.out || ".trust-baseline.json");
+
+  log(paint(1, `${TOOL.name} ${TOOL.version}`), `— baseline for ${baseline.target || baseline.environment}`);
+  log(`  ${baseline.findings.length} accepted finding(s) from ${baseline.profiles.join(", ")}`);
+  for (const entry of baseline.findings.slice(0, 10)) log(paint(90, `    ${entry.status.padEnd(4)} ${entry.severity.padEnd(8)} ${entry.id}`));
+  if (baseline.findings.length > 10) log(paint(90, `    … and ${baseline.findings.length - 10} more`));
+  log("");
+  log(paint(90, `  gate on it:  trust run --baseline ${outPath} --config <config> --profile <profile>`));
+  log(paint(90, "  a baseline hides nothing from the report — it only decides what may block a build"));
   console.log(outPath);
   return 0;
 }
@@ -379,6 +476,7 @@ async function main() {
     case "preflight": return commandPreflight(opts, { reach: !opts.offline });
     case "validate": return commandPreflight(opts, { reach: false });
     case "tokens": return commandTokens(opts);
+    case "baseline": return commandBaseline(opts);
     case "catalog": return commandCatalog(opts);
     default: throw new ConfigError(`Unknown command "${opts.command}"`);
   }

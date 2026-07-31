@@ -31,6 +31,7 @@ Nothing is compiled and there is no install script, so `npm ci --ignore-scripts`
 | `trust preflight --config <path>` | Check the run will work before it spends the budget: config, allowlist coverage, tokens, budget, reachability |
 | `trust validate --config <path>` | Config and allowlist checks only — no network, no tokens, safe against a production config |
 | `trust tokens --config <path>` | Acquire every declared auth strategy once and write the tokens to a 0600 file, so a CI job signs in once |
+| `trust baseline --dir reports` | Record today's findings as accepted, so the gate means "nothing got worse" |
 | `trust catalog [--json]` | List every test with its category and trust domain |
 
 ### As a library
@@ -112,6 +113,8 @@ trust/
 │   ├── config.mjs            section aliases, `extends`, request budgets
 │   ├── auth/                 declarative strategies: SRP, OAuth2 grants, SigV4 signing
 │   ├── chain.mjs             dependsOn / condition — conditional execution
+│   ├── baseline.mjs          accepted findings, and what changed against them
+│   ├── export/               SARIF 2.1.0, JUnit XML, stable finding identity
 │   ├── finding.mjs           finding() factory, redact(), canary(), headline()
 │   ├── catalog.mjs           test metadata, domains, root causes, attack paths  ← source of truth
 │   ├── report.mjs            per-run JSON + standalone HTML + surface derivation
@@ -129,7 +132,7 @@ trust/
 ├── scripts/
 │   ├── preflight.mjs         publish gate: no deps, no install scripts, no secrets shipped
 │   └── combined-report.mjs   deprecated shim → `trust report`
-├── test/                     161 tests over safety, auth, config, isolation, reporting, probes
+├── test/                     181 tests over safety, auth, config, isolation, export, probes
 └── reports/                  generated output (gitignored)
 ```
 
@@ -409,6 +412,52 @@ Cognito user pool still accepts `USER_PASSWORD_AUTH` — which bypasses federate
 everything attached to it, including MFA. Checks that genuinely need a browser (session fixation
 across a real login, the code-verifier cookie after callback) are reported as skips carrying the
 manual procedure rather than guessed at.
+
+### CI integration
+
+```bash
+trust run --config config/dev.json --profile authenticated   --baseline .trust-baseline.json --sarif trust.sarif --junit trust-junit.xml
+```
+
+| Output | Where it lands |
+|---|---|
+| `--sarif <file>` | A security dashboard (GitHub's Security tab, and anything else that reads SARIF 2.1.0) |
+| `--junit <file>` | The test-results view of any CI |
+| `--baseline <file>` | Nothing new — it changes which findings may **block** the build |
+
+SARIF carries the severity as `security-severity` **and** as `impactIfFailed`, and only failures
+get a `level`: a passing CRITICAL control is normal in TRUST, and must not paint a dashboard
+red. Results are anchored to the config file rather than to a fabricated source line, because an
+invented file and line is a lie a reviewer would act on. Each result carries a stable
+fingerprint — test plus target, never evidence — so a dashboard de-duplicates across runs
+instead of re-raising everything each night.
+
+JUnit renders a warning as a failure. JUnit has no third state, and the honest options are red
+or invisible; invisible is worse for a control that could not be confirmed. The build gate is
+the exit code, which distinguishes them properly.
+
+### Baselines
+
+A team adopting TRUST mid-life inherits findings it did not cause and cannot fix this week.
+Without a baseline the choice is to fail every build until the backlog clears — which nobody
+does — or to stop gating on the tool, which is the same as removing it.
+
+```bash
+trust baseline --dir reports --note "adopted at rollout"   # writes .trust-baseline.json
+trust run --baseline .trust-baseline.json --config config/dev.json --profile authenticated
+```
+
+```
+baseline: 1 new · 0 worsened · 12 known · 2 fixed
+    new      critical API-USERID-SPOOF — Server derives identity from the token
+    fixed    high     API-CROSS-USER   — User B cannot read User A's record
+```
+
+A baseline hides nothing: the report still shows everything, and only the exit code changes.
+Fixed findings are reported as loudly as new ones, a warning that becomes a failure is
+**worsened** rather than accepted, and a baselined finding whose profile did not run this time
+is reported as absent rather than fixed — a gate that congratulates a team for skipping a
+profile is worse than no gate. Commit the baseline file; it is a policy record, not a cache.
 
 ### Trends and history
 

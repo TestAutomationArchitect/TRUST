@@ -457,6 +457,7 @@ export function buildModel(reports, { title = "" } = {}) {
     [/^WEB-|^INJECT-/, ["web"]],
     [/^API-|^SESSION-/, ["api"]],
     [/^AUTH-/, ["auth", "api"]],
+    [/^IDP-/, ["idp", "auth"]],
     [/^STORAGE-/, ["storage"]],
     [/^AGENT-/, ["agent"]],
     [/^MOBILE-/, ["mobile"]],

@@ -445,3 +445,13 @@ test("a declared agent endpoint is denied-by-default, and its dependents gate on
   assert.equal(byId(findings, "AGENT-ENDPOINT-COORDINATOR-GUARDRAIL").status, "skip");
   assert.match(byId(findings, "AGENT-ENDPOINT-COORDINATOR-GUARDRAIL").evidence, /not reachable — upstream control held/);
 });
+
+test("a single-identity boundary names the field the spec actually declared", async () => {
+  const spec = { id: "API-ENUMERATION", type: "enumeration", endpoint: "https://api.dev.example.com/graphql", query: "query { x }", tokenEnv: "TRUST_TEST_MISSING" };
+  const h = harness(() => json({ data: {} }), { identities: [] });
+  const [f] = await run(h, baseConfig({ isolation: [spec] }));
+  assert.equal(f.status, "skip");
+  // Not "tokenAEnv" — a reason pointing at a field the author never wrote sends them looking
+  // in the wrong place.
+  assert.match(f.evidence, /TRUST_TEST_MISSING is not set/);
+});

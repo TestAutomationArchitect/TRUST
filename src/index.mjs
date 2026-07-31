@@ -38,6 +38,9 @@ export {
   registerDomains,
   registerRootCauses,
   registerSummaryRules,
+  registerAttackPaths,
+  matchAttackPaths,
+  ATTACK_PATHS,
 } from "./catalog.mjs";
 
 // ── Reporting ───────────────────────────────────────────────────────
@@ -58,6 +61,15 @@ export { resolveAuth, acquire, credentialFor, authInit, jwtClaims, signRequest, 
 // A custom probe gates on an upstream finding exactly as a declared boundary does — the run's
 // findings so far arrive as the third argument to run(config, client, { findings }).
 export { chainGate, statusIndex, activationNote, DEFAULT_CONDITION } from "./chain.mjs";
+
+// ── Integration surface ─────────────────────────────────────────────
+// SARIF puts findings in a partner's security dashboard; JUnit puts them in any CI. A baseline
+// makes the build gate mean "nothing got worse", which is a promise a team can keep while it
+// works through inherited findings.
+export { toSarif } from "./export/sarif.mjs";
+export { toJUnit } from "./export/junit.mjs";
+export { findingKey, fingerprint } from "./export/identity.mjs";
+export { buildBaseline, loadBaseline, writeBaseline, diffAgainstBaseline, exitCodeForDiff, BASELINE_VERSION } from "./baseline.mjs";
 
 // ── Built-in probe modules, for embedding one at a time ─────────────
 export { runWebProbes } from "./probes/web.mjs";

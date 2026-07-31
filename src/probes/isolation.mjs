@@ -362,9 +362,13 @@ export async function runIsolationProbes(config, client, context = {}) {
 
     const { credential: credA, reason: reasonA } = credentialFor(client, spec, "tokenA", { env });
     const { credential: credB, reason: reasonB } = credentialFor(client, spec, "tokenB", { env });
-    const single = credA ?? credentialFor(client, spec, "token", { env }).credential;
+    // A single-identity boundary is usually written with "token" rather than "tokenA", so the
+    // skip must name the field the spec actually declared — a reason pointing at a field the
+    // author never wrote sends them looking in the wrong place.
+    const fallback = credentialFor(client, spec, "token", { env });
+    const single = credA ?? fallback.credential;
     if (!single) {
-      out.push(boundarySkip(spec, reasonA));
+      out.push(boundarySkip(spec, spec.token || spec.tokenEnv ? fallback.reason : reasonA));
       continue;
     }
     if (NEEDS_TWO_IDENTITIES.has(spec.type) && !credB) {

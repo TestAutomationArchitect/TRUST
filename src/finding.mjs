@@ -27,6 +27,16 @@ const REDACTIONS = [
   // after a ? or & in a URL, so match the parameter wherever it occurs.
   [/\b(sig|se|sp|sv|skoid|sktid|skt|ske|sks|srt|ss)=([A-Za-z0-9%+/=_-]{8,})/gi, "$1=[REDACTED]"],
   [/\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g, "[REDACTED_SLACK_TOKEN]"],
+  // Correlation data rather than credentials, but an evidence file is shared with people who
+  // should not be able to resolve it back to a person or an account. A Cognito identity ID maps
+  // to a real user in the identity pool; an account ID in an ARN is not secret, but partners
+  // consistently ask for it not to travel in a document they forward.
+  //
+  // Deliberately *not* redacted: bare UUIDs. TRUST plants canaries and session identifiers in
+  // its own evidence, and they are how a reader verifies a leak finding — blanket-redacting
+  // every UUID would erase the proof along with the correlation risk.
+  [/\b[a-z]{2}-[a-z]+-\d:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[REDACTED_IDENTITY_ID]"],
+  [/(arn:aws[a-z-]*:[a-z0-9-]*:[a-z0-9-]*:)(\d{12})(:)/gi, "$1[REDACTED_ACCOUNT]$3"],
   // JSON-quoted secrets, whose values may contain spaces and so are missed by the
   // whitespace-delimited rule below. A service-account key is the canonical case:
   //   "private_key": "-----BEGIN PRIVATE KEY-----\nMIIE…"

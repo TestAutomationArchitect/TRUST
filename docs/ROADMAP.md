@@ -122,7 +122,7 @@ same thing is worse than one.
 
 ---
 
-## 1.5 — Integration surface
+## 1.5 — Integration surface — **done**
 
 | Item | Source | Notes |
 |---|---|---|
@@ -131,6 +131,11 @@ same thing is worse than one.
 | **Baseline diffing** | their "missing" list | Overlaps the 1.1 trends work; the report side lands there, the CLI gate (`--baseline <run>`, fail only on *new* findings) lands here. |
 | **`registerAttackPaths()`** | backlog | Every other catalogue facet is extensible; paths are not. |
 | **Findings lifecycle / issue tracker** | their "missing" list | **Deferred, not declined.** Export stable finding identities so an external system can own the lifecycle; TRUST should not become a ticket tracker. |
+
+**As built.** `src/export/` (SARIF, JUnit, identity) and `src/baseline.mjs`, wired into `run` and
+`report` as `--sarif` / `--junit` / `--baseline`, plus `trust baseline` to record one.
+`findingKey()` is the stable identity the deferred lifecycle item needs — test plus target,
+excluding evidence and status, so an external tracker can own a finding across runs.
 
 ---
 
