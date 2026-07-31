@@ -7,21 +7,22 @@
 
 import { finding, skipped, inconclusive, sweepVerdict } from "../finding.mjs";
 import { section } from "../config.mjs";
+import { authInit, credentialFor } from "../auth/index.mjs";
 
 /**
  * Execute one request spec.
  *   GraphQL: { query, variables }             → POST endpoint
  *   REST:    { method, path, body, headers }  → method endpoint+path
  */
-async function execute(client, api, token, spec, { write = false, denialTest = false } = {}) {
-  const scheme = api.authScheme ?? "Bearer";
-  const authHeader = api.authHeader ?? "authorization";
-  const headers = {
-    "content-type": "application/json",
-    [authHeader]: scheme ? `${scheme} ${token}` : token,
-    ...(api.headers ?? {}),
-    ...(spec.headers ?? {}),
-  };
+async function execute(client, api, credential, spec, { write = false, denialTest = false } = {}) {
+  // A bearer credential becomes a header here; a SigV4 credential is signed by the client
+  // once the guards have approved the request, so both take the same path from this point.
+  const auth = authInit(credential, {
+    header: api.authHeader ?? "authorization",
+    scheme: api.authScheme ?? "Bearer",
+    headers: { "content-type": "application/json", ...(api.headers ?? {}), ...(spec.headers ?? {}) },
+  });
+  const headers = auth.headers;
 
   const isGraphql = (api.kind ?? "graphql") === "graphql";
   const url = isGraphql ? api.endpoint : new URL(spec.path ?? "", api.endpoint).href;
@@ -32,7 +33,7 @@ async function execute(client, api, token, spec, { write = false, denialTest = f
       ? JSON.stringify(spec.body)
       : undefined;
 
-  const response = await client.request(url, { method, headers, body: payload, write, denialTest });
+  const response = await client.request(url, { ...auth, method, headers, body: payload, write, denialTest });
   const text = await response.text();
   let json = null;
   try {
@@ -87,11 +88,11 @@ export async function runApiProbes(config, client) {
   const { value: api, key: apiKey } = section(config, "api");
   if (!api?.endpoint) return [skipped("API-CONFIG", "API authorisation probe suite", "config.api.endpoint is not configured")];
 
-  const tokenA = api.tokenAEnv ? process.env[api.tokenAEnv] : undefined;
-  const tokenB = api.tokenBEnv ? process.env[api.tokenBEnv] : undefined;
-  if (!tokenA) {
-    return [skipped("API-CONFIG", "API authorisation probe suite", `${api.tokenAEnv ?? "api.tokenAEnv"} is not set in the environment`)];
-  }
+  // "tokenA": "userA" names an auth strategy; "tokenAEnv" reads a bearer token straight from
+  // the environment. Whichever is configured, the probe below sees one credential object.
+  const { credential: tokenA, reason: reasonA } = credentialFor(client, api, "tokenA");
+  const { credential: tokenB, reason: reasonB } = credentialFor(client, api, "tokenB");
+  if (!tokenA) return [skipped("API-CONFIG", "API authorisation probe suite", reasonA)];
 
   const out = [];
 
@@ -99,7 +100,7 @@ export async function runApiProbes(config, client) {
   if (!api.crossUser) {
     out.push(skipped("API-CROSS-USER", "User B cannot read User A's record", "config.api.crossUser is not defined"));
   } else if (!tokenB) {
-    out.push(skipped("API-CROSS-USER", "User B cannot read User A's record", `${api.tokenBEnv ?? "api.tokenBEnv"} is not set — isolation needs a second identity`));
+    out.push(skipped("API-CROSS-USER", "User B cannot read User A's record", `isolation needs a second identity: ${reasonB}`));
   } else {
     try {
       const result = await execute(client, api, tokenB, api.crossUser);
@@ -504,7 +505,7 @@ export async function runApiProbes(config, client) {
       const before = await execute(client, api, tokenA, { method: "GET", path: session.verifyEndpoint });
       await client.request(new URL(session.logoutEndpoint, api.endpoint).href, {
         method: session.logoutMethod ?? "POST",
-        headers: { [api.authHeader ?? "authorization"]: `${api.authScheme ?? "Bearer"} ${tokenA}` },
+        ...authInit(tokenA, { header: api.authHeader ?? "authorization", scheme: api.authScheme ?? "Bearer" }),
         write: true,
       });
       const after = await execute(client, api, tokenA, { method: "GET", path: session.verifyEndpoint });
@@ -527,7 +528,7 @@ export async function runApiProbes(config, client) {
     }
   }
 
-  const expiredToken = session?.expiredTokenEnv ? process.env[session.expiredTokenEnv] : undefined;
+  const { credential: expiredToken } = session?.expiredTokenEnv ? credentialFor(client, session, "expiredToken") : {};
   if (!session?.verifyEndpoint || !expiredToken) {
     out.push(
       skipped(

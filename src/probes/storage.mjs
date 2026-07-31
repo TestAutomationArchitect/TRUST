@@ -11,14 +11,19 @@
 
 import { finding, skipped, inconclusive } from "../finding.mjs";
 import { section } from "../config.mjs";
+import { authInit, credentialFor } from "../auth/index.mjs";
 
-function authHeaders(storage, token) {
-  const scheme = storage.authScheme ?? "Bearer";
-  const header = storage.authHeader ?? "authorization";
-  return {
-    [header]: scheme ? `${scheme} ${token}` : token,
-    ...(storage.headers ?? {}),
-  };
+/**
+ * Request init for one identity. A bearer credential becomes a header; a SigV4 credential is
+ * signed by the client after its guards pass — which is what lets these probes run against a
+ * bucket that only accepts signed requests, without the harness holding long-lived keys.
+ */
+function asIdentityInit(storage, credential) {
+  return authInit(credential, {
+    header: storage.authHeader ?? "authorization",
+    scheme: storage.authScheme ?? "Bearer",
+    headers: { ...(storage.headers ?? {}) },
+  });
 }
 
 function objectUrl(storage, target) {
@@ -42,8 +47,8 @@ export async function runStorageProbes(config, client) {
     return [skipped("STORAGE-CONFIG", "Storage isolation probe suite", "config.storage is not configured")];
   }
 
-  const tokenA = storage.tokenAEnv ? process.env[storage.tokenAEnv] : undefined;
-  const tokenB = storage.tokenBEnv ? process.env[storage.tokenBEnv] : undefined;
+  const { credential: tokenA, reason: reasonA } = credentialFor(client, storage, "tokenA");
+  const { credential: tokenB, reason: reasonB } = credentialFor(client, storage, "tokenB");
   const out = [];
 
   // ── Unauthenticated listing / read ────────────────────────────────
@@ -76,7 +81,7 @@ export async function runStorageProbes(config, client) {
       skipped(
         "STORAGE-CONFIG",
         "Authenticated storage isolation probes",
-        `${storage.tokenAEnv ?? "storage.tokenAEnv"} is not set — authenticated isolation tests need a real identity`,
+        `authenticated isolation tests need a real identity: ${reasonA}`,
       ),
     );
     return out;
@@ -116,7 +121,7 @@ export async function runStorageProbes(config, client) {
     }
 
     try {
-      const response = await client.request(url, { headers: authHeaders(storage, token) });
+      const response = await client.request(url, asIdentityInit(storage, token));
       const text = (await response.text()).slice(0, 800);
       const accessible = readable(response.status, text);
       out.push(
@@ -143,7 +148,7 @@ export async function runStorageProbes(config, client) {
       skipped(
         "STORAGE-CROSS-TENANT",
         "Cross-tenant isolation confirmed from both directions",
-        `${storage.tokenBEnv ?? "storage.tokenBEnv"} is not set — only one direction of isolation was tested`,
+        `only one direction of isolation was tested: ${reasonB}`,
       ),
     );
   }

@@ -75,7 +75,7 @@ Direct from the report feedback in `Engineering_Review.md`. All of it is agreed.
 
 ---
 
-## 1.3 — Auth strategies (the adoption blocker)
+## 1.3 — Auth strategies (the adoption blocker) — **done**
 
 Both documents rank this first for enterprise adoption, and I agree: TRUST assumes a bearer token
 in `.env`, while real deployments exchange an ID token for scoped credentials and sign requests.
@@ -90,6 +90,15 @@ in `.env`, while real deployments exchange an ID token for scoped credentials an
 **Constraint:** every strategy must degrade to `skipped()` with a precise reason when its inputs
 are missing. No strategy may weaken `SafeHttpClient` — signing happens *inside* the guarded path,
 never around it.
+
+**As built.** `src/auth/` — `srp.mjs` (RFC 5054 over the 3072-bit MODP group, checked in the
+tests as a safe prime rather than by eye), `sigv4.mjs` (verified against AWS's published
+`get-vanilla` vector), `index.mjs` (strategies, resolution order, `credentialFor`/`authInit`).
+Acquisition spends from the run budget under the `auth` suite and is visible in the run JSON as
+names, kinds and expiry — never tokens. `trust preflight` checks strategies declaratively
+without signing in; `trust tokens` performs the real acquisition. Deliberately not implemented:
+MFA and forced-password-change challenges, which are reported as unautomatable rather than
+worked around.
 
 ---
 

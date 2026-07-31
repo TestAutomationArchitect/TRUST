@@ -17,6 +17,7 @@
 
 import { readFile } from "node:fs/promises";
 import tls from "node:tls";
+import { applyCredential } from "./auth/index.mjs";
 
 export const DEFAULT_SAFETY = {
   maxRequests: 100,
@@ -173,9 +174,12 @@ export class SafeHttpClient {
 
   #suite = null;
   #suiteCounts = new Map();
+  #refreshed = new Set();
 
-  constructor(config, { budget = null } = {}) {
+  constructor(config, { budget = null, credentials = new Map() } = {}) {
     this.config = config;
+    /** Resolved auth strategies, by name. Probes look credentials up here; see auth/index.mjs. */
+    this.credentials = credentials;
     this.safety = config.safety ?? { ...DEFAULT_SAFETY };
     this.allowedHosts = new Set(config.targets?.allowedHosts ?? []);
     // A resolved budget from config.mjs; falling back to the scalar keeps direct library use
@@ -240,9 +244,12 @@ export class SafeHttpClient {
    *                          because the whole point is that nothing should be written. If the
    *                          target accepts it, that acceptance is the finding.
    *   agentInvocation: true  this request invokes an LLM/agent → requires allowAgentInvocations
+   *   auth: credential       a resolved credential. A bearer token is already a header by the
+   *                          time it arrives; a SigV4 credential signs the request here, after
+   *                          every guard has passed, so signing can never route around one.
    */
   async request(url, init = {}) {
-    const { write = false, agentInvocation = false, denialTest = false, ...fetchInit } = init;
+    const { write = false, agentInvocation = false, denialTest = false, auth = null, authHeader = "authorization", ...fetchInit } = init;
     const method = (fetchInit.method ?? "GET").toUpperCase();
     const parsed = this.assertUrlAllowed(url);
 
@@ -276,7 +283,33 @@ export class SafeHttpClient {
     this.#lastRequestAt = Date.now();
 
     const signal = AbortSignal.timeout(this.safety.requestTimeoutMs);
-    return fetch(parsed.href, { ...fetchInit, method, redirect: "manual", signal });
+    const headers = applyCredential(auth, { method, url: parsed, headers: fetchInit.headers ?? {}, body: fetchInit.body });
+    const response = await fetch(parsed.href, { ...fetchInit, headers, method, redirect: "manual", signal });
+
+    // A long agent run outlives a fifteen-minute token, and every probe after expiry would
+    // otherwise report the target rejecting valid requests. Refresh once, then believe the 401:
+    // a second failure is a finding about the target, not about the harness.
+    if (response.status === 401 && typeof auth?.reacquire === "function" && !this.#refreshed.has(auth)) {
+      this.#refreshed.add(auth);
+      const fresh = await auth.reacquire();
+      if (!fresh.error) {
+        // Mutated in place so probes holding this credential pick up the new token.
+        Object.assign(auth, fresh);
+        return this.request(url, auth.kind === "bearer" ? this.#reauthorize(init, authHeader, auth) : init);
+      }
+    }
+    return response;
+  }
+
+  /**
+   * Replace the stale bearer header after a refresh. The header name travels with the request
+   * (authInit sets it) rather than being guessed, so a section using x-api-key refreshes too.
+   */
+  #reauthorize(init, headerName, credential) {
+    const headers = { ...(init.headers ?? {}) };
+    const existing = Object.keys(headers).find((n) => n.toLowerCase() === headerName.toLowerCase()) ?? headerName;
+    headers[existing] = credential.scheme === "" ? credential.token : `${credential.scheme ?? "Bearer"} ${credential.token}`;
+    return { ...init, headers };
   }
 
   #refuse(what, why) {

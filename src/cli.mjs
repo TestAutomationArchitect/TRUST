@@ -5,6 +5,7 @@
  *   trust init   --target https://dev.example.com [--name app] [--env dev] [--dir .]
  *   trust run    --config config/dev.json --profile passive [--out reports] [--dry-run] [--quiet]
  *   trust report --dir reports [--out file.html] [--title "…"]
+ *   trust tokens --config config/dev.json [--out .trust-credentials.env]
  *   trust catalog [--json] [--domain Authorization]
  *
  * `trust --config … --profile …` with no subcommand is equivalent to `trust run`.
@@ -17,6 +18,7 @@
 
 import path from "node:path";
 import { realpathSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { loadConfig, validateConfig, SafetyError, ConfigError } from "./safety.mjs";
 import { runProfile, PROFILES } from "./runner.mjs";
@@ -24,11 +26,13 @@ import { resolveBudget, resolvedSections } from "./config.mjs";
 import { writeCombinedReport } from "./assessment/index.mjs";
 import { scaffold } from "./init.mjs";
 import { runPreflight } from "./preflight.mjs";
+import { resolveAuth, exportNameFor } from "./auth/index.mjs";
+import { SafeHttpClient } from "./safety.mjs";
 import { listCatalog } from "./catalog.mjs";
 import { TOOL } from "./report.mjs";
 import { loadEnv } from "./env.mjs";
 
-const COMMANDS = ["init", "run", "report", "catalog", "preflight", "validate", "help", "version"];
+const COMMANDS = ["init", "run", "report", "catalog", "preflight", "validate", "tokens", "help", "version"];
 
 const USAGE = `${TOOL.name} ${TOOL.version} — ${TOOL.tagline}
 
@@ -53,6 +57,11 @@ const USAGE = `${TOOL.name} ${TOOL.version} — ${TOOL.tagline}
 
   trust validate --config <path>
                 config and allowlist checks only — no network, no tokens needed
+
+  trust tokens  --config <path> [--out .trust-credentials.env] [--json]
+                acquire every declared auth strategy once and write the tokens to a
+                file (mode 600), so a CI job authenticates once and every later step
+                reuses it. Tokens are never printed.
 
   trust catalog [--json] [--domain <trust domain>]
                 list every known test with its category, domain and purpose
@@ -141,6 +150,7 @@ export function parseArgs(argv) {
       }
     }
     if (opts.command === "init" && !opts.target) throw new ConfigError("--target is required, e.g. --target https://dev.example.com");
+    if (opts.command === "tokens" && !opts.config) throw new ConfigError("--config is required");
     if ((opts.command === "preflight" || opts.command === "validate") && !opts.config) {
       throw new ConfigError("--config is required");
     }
@@ -247,6 +257,67 @@ async function commandPreflight(opts, { reach }) {
   return ok ? 0 : 1;
 }
 
+/**
+ * Acquire every declared strategy once and persist the result.
+ *
+ * The problem this solves is unattended CI: a token pasted into .env expires, and a job that
+ * authenticates in every step multiplies sign-ins until the IdP rate-limits the assessment.
+ * The written file is read back by a later `trust run` through the same env var the strategy
+ * would export, so acquisition happens once per pipeline.
+ *
+ * A token is never printed. What reaches the console is the strategy name, kind and expiry.
+ */
+async function commandTokens(opts) {
+  const config = await loadConfig(opts.config);
+  validateConfig(config);
+  const declared = Object.keys(config.auth?.strategies ?? {});
+  if (declared.length === 0) throw new ConfigError("config.auth.strategies is empty — nothing to acquire");
+
+  const client = new SafeHttpClient(config, { budget: resolveBudget(config, opts.profile) });
+  client.beginSuite("auth");
+  log(paint(1, `${TOOL.name} ${TOOL.version}`), `— acquiring ${declared.length} credential(s) for ${config.name} (${config.environment})`);
+  const resolved = await resolveAuth(config, client, {});
+
+  const lines = [];
+  let failures = 0;
+  for (const [name, credential] of resolved) {
+    if (credential.error) {
+      failures += 1;
+      log(`  ${paint(31, "✗")} ${paint(90, name.padEnd(18))} ${credential.error}`);
+      continue;
+    }
+    const expiry = credential.expiresAt ? `expires ${credential.expiresAt}` : "no expiry claim";
+    if (credential.kind === "bearer") {
+      const envName = exportNameFor(name, config.auth.strategies[name]);
+      lines.push(`${envName}=${credential.token}`);
+      log(`  ${paint(32, "✓")} ${paint(90, name.padEnd(18))} ${credential.type} → ${envName} (${expiry})`);
+    } else {
+      // Signing credentials are short-lived and bound to the run that acquired them; writing
+      // them to a file would outlive their usefulness and widen what a leaked file exposes.
+      log(`  ${paint(32, "✓")} ${paint(90, name.padEnd(18))} ${credential.type} → signing credentials, acquired per run (${expiry})`);
+    }
+  }
+
+  if (opts.json) {
+    console.log(JSON.stringify(
+      [...resolved.values()].map((c) => ({ name: c.name, strategy: c.type, kind: c.kind ?? null, ok: !c.error, expiresAt: c.expiresAt ?? null, error: c.error ?? null })),
+      null, 2,
+    ));
+    return failures ? 1 : 0;
+  }
+
+  const outPath = opts.out || ".trust-credentials.env";
+  if (lines.length) {
+    // 0600, and appended to .gitignore by `trust init` — this file is a live credential.
+    await writeFile(outPath, lines.map((line) => `${line}\n`).join(""), { mode: 0o600 });
+    log("");
+    log(`  ${outPath} — ${lines.length} credential(s), mode 600`);
+    log(paint(90, `  load it before the run:  trust run --dotenv ${outPath} --config ${opts.config} --profile authenticated`));
+    console.log(outPath);
+  }
+  return failures ? 1 : 0;
+}
+
 async function commandReport(opts) {
   const { outPath, profiles, trendsDir } = await writeCombinedReport({ dir: opts.dir, out: opts.out, title: opts.title, noTrends: opts.noTrends, trendsDir: opts.trendsDir });
   log(`Merged ${profiles.length} profile(s): ${profiles.join(", ")}`);
@@ -293,7 +364,7 @@ async function main() {
     console.log(USAGE);
     return 0;
   }
-  if (!opts.noEnv && (opts.command === "run" || opts.command === "report")) {
+  if (!opts.noEnv && ["run", "report", "tokens", "preflight"].includes(opts.command)) {
     const env = await loadEnv(opts.envFile);
     if (env.present) {
       log(paint(90, `  env      ${env.loaded.length} variable(s) from ${env.envFile ?? opts.envFile}` +
@@ -307,6 +378,7 @@ async function main() {
     case "report": return commandReport(opts);
     case "preflight": return commandPreflight(opts, { reach: !opts.offline });
     case "validate": return commandPreflight(opts, { reach: false });
+    case "tokens": return commandTokens(opts);
     case "catalog": return commandCatalog(opts);
     default: throw new ConfigError(`Unknown command "${opts.command}"`);
   }

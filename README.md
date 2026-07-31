@@ -30,6 +30,7 @@ Nothing is compiled and there is no install script, so `npm ci --ignore-scripts`
 | `trust report --dir reports` | Merge the latest run per profile into one Trust Assessment |
 | `trust preflight --config <path>` | Check the run will work before it spends the budget: config, allowlist coverage, tokens, budget, reachability |
 | `trust validate --config <path>` | Config and allowlist checks only — no network, no tokens, safe against a production config |
+| `trust tokens --config <path>` | Acquire every declared auth strategy once and write the tokens to a 0600 file, so a CI job signs in once |
 | `trust catalog [--json]` | List every test with its category and trust domain |
 
 ### As a library
@@ -107,6 +108,9 @@ trust/
 │   ├── init.mjs              scaffolding written by `trust init`
 │   ├── env.mjs               .env loading for the CLI (never for the library)
 │   ├── safety.mjs            SafeHttpClient + config validation
+│   ├── preflight.mjs         `trust preflight` / `trust validate` checks
+│   ├── config.mjs            section aliases, `extends`, request budgets
+│   ├── auth/                 declarative strategies: SRP, OAuth2 grants, SigV4 signing
 │   ├── finding.mjs           finding() factory, redact(), canary(), headline()
 │   ├── catalog.mjs           test metadata, domains, root causes, attack paths  ← source of truth
 │   ├── report.mjs            per-run JSON + standalone HTML + surface derivation
@@ -122,7 +126,7 @@ trust/
 ├── scripts/
 │   ├── preflight.mjs         publish gate: no deps, no install scripts, no secrets shipped
 │   └── combined-report.mjs   deprecated shim → `trust report`
-├── test/                     79 tests over safety, findings, reporting, packaging, probes
+├── test/                     134 tests over safety, auth, config, findings, reporting, probes
 └── reports/                  generated output (gitignored)
 ```
 
@@ -265,6 +269,59 @@ sweep can pass.
 enabling writes generally. Proving a permission mutation is rejected previously required
 turning on every destructive path in the harness. If the target accepts the request, that
 acceptance is the finding.
+### Authentication
+
+Real deployments do not keep a bearer token in `.env`; they sign in against an IdP, exchange
+the result for scoped credentials, and sign the request. TRUST declares that in config and
+resolves it once, before any probe runs:
+
+```jsonc
+"auth": {
+  "strategies": {
+    "userA": { "type": "cognito-srp", "region": "us-east-1", "userPoolId": "us-east-1_AbC123",
+               "clientId": "…", "username": "a@example.com", "passwordEnv": "USER_A_PASSWORD" },
+    "userB": { "type": "cognito-srp", "…": "…", "username": "b@example.com", "passwordEnv": "USER_B_PASSWORD" },
+    "signed": { "type": "cognito-identity-pool", "region": "us-east-1", "identityPoolId": "…",
+                "providerName": "cognito-idp.us-east-1.amazonaws.com/us-east-1_AbC123",
+                "idTokenFrom": "userA", "service": "execute-api" }
+  }
+},
+"api": { "endpoint": "https://api.dev.example.com/graphql", "tokenA": "userA", "tokenB": "userB" }
+```
+
+| Strategy | What it does |
+|---|---|
+| `static` | Today's behaviour, named — a bearer token from an env var |
+| `cognito-srp` | Cognito `USER_SRP_AUTH`. SRP, so no plaintext-password grant has to be enabled on the pool to be assessed |
+| `cognito-identity-pool` | Exchanges an ID token for temporary AWS credentials, then signs |
+| `okta-ropc` | Okta resource-owner password grant |
+| `client-credentials` | OAuth2 machine-to-machine — the grant CI can always use |
+| `sigv4` | AWS SigV4 from keys in the environment |
+
+Three properties hold for every strategy, and they are the reason this is worth having in the
+tool rather than in a shell script around it:
+
+- **Nothing weakens `SafeHttpClient`.** Acquisition goes *through* the guarded client, so an IdP
+  host must appear in `targets.allowedHosts` like any other host, and a SigV4 signature is
+  computed inside `request()` on a URL the guards have already approved.
+- **Config still stores names, never secrets.** `passwordEnv`, `clientSecretEnv` and
+  `accessKeyIdEnv` name environment variables. Nothing prints a token: the run report and the
+  console carry strategy names, kinds and expiry.
+- **A missing input is a precise skip.** "`USER_A_PASSWORD` is not set in the environment"
+  rather than a failed login that reads like a finding about the target. `trust preflight`
+  reports the same thing without signing in at all — a check that costs a login is a check
+  teams stop running.
+
+A long run outlives a short-lived token, so a 401 triggers **one** refresh and a retry. A second
+401 is believed and reported: after that it is a statement about the target, not the harness.
+
+For CI, acquire once and share:
+
+```bash
+trust tokens --config config/dev.json --out .trust-credentials.env   # 0600, tokens never printed
+trust run --dotenv .trust-credentials.env --config config/dev.json --profile authenticated
+```
+
 ### Trends and history
 
 `trust report` records each run in `.trends/trends.json` and renders a Trends section once

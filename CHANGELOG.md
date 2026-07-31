@@ -4,6 +4,63 @@ All notable changes are documented here. This project follows the semver contrac
 [docs/VERSIONING.md](docs/VERSIONING.md) — note that finding IDs and severities are part
 of the public API, and any change to a verdict is called out under **Verdict changes**.
 
+## [Unreleased]
+
+Everything below is on `main` and not yet published. It comes from two partner field-test
+documents, triaged in [docs/ROADMAP.md](docs/ROADMAP.md).
+
+### Added
+
+- **Declarative auth strategies.** `auth.strategies` acquires credentials instead of expecting a
+  bearer token pasted into `.env` — `cognito-srp` (SRP, so no plaintext-password grant has to be
+  enabled on the pool), `cognito-identity-pool`, `okta-ropc`, `client-credentials`, `sigv4` and
+  `static`. A section names a strategy (`"tokenA": "userA"`) where it used to name an env var,
+  and `tokenAEnv` keeps working unchanged. Acquisition runs through `SafeHttpClient`, so an IdP
+  host must be allowlisted like any other; a SigV4 signature is computed inside `request()`
+  after every guard has passed. A missing input degrades to a skip that names it.
+- **Token refresh mid-run.** A 401 triggers one re-acquisition and a retry; a second 401 is
+  reported as-is, because at that point it describes the target.
+- **`trust tokens`** acquires every strategy once and writes the tokens to a 0600 file for a CI
+  job to load, so a pipeline signs in once rather than once per step. Tokens are never printed.
+- **`trust preflight` and `trust validate`** answer "will this run work?" before the request
+  budget is spent: config validity, allowlist coverage of every configured endpoint and IdP,
+  token presence, expiry and distinctness, budget against the profile's typical spend, and TLS
+  reachability. `validate` is the same checks with no network at all. Preflight never signs in —
+  a check that costs a login is a check teams stop running.
+- **`trust.config.schema.json`**, shipped with the package and referenced by scaffolded configs,
+  so editors validate and autocomplete a config as it is written.
+- **Config section aliases and inheritance.** An application that calls its API section `graphql`
+  or `appSync`, or its agent section `agentCore` or `bedrock`, no longer duplicates the endpoint
+  under a second key. A config may `extend` another and override only what differs; arrays
+  replace rather than merge, so a child can narrow an allowlist but never silently widen one.
+  The run records which key each section resolved from.
+- **Per-profile and per-suite request budgets.** `safety.maxRequests` accepts a map keyed by
+  profile, and `safety.budgets` caps individual suites — the fix for a long web sweep exhausting
+  the run before the storage and agent probes execute. Spend is recorded per suite.
+- **`safety.allowDenialTests`** permits a mutation that is *expected to be refused* without
+  enabling writes generally. Proving one permission control holds previously required turning on
+  every destructive path in the harness.
+- **Executive dashboard, list filters and trends** in the Trust Assessment: an un-collapsed
+  posture summary with a one-paragraph synopsis, dropdown filters for status, severity and
+  category with a clear control, and a trends section with sparklines over run history.
+
+### Changed
+
+- **History is state, not output.** Run history lives in `.trends/trends.json`, not in the
+  reports directory, so publishing reports as a CI artifact no longer publishes the history and
+  wiping reports no longer resets it. A legacy `reports/trends.json` is migrated on first run.
+
+### Fixed
+
+- **A sweep that could not complete no longer passes.** `API-INVENTORY-EXPOSED` reported PASS
+  having checked zero paths when the budget ran out first. Verdicts now carry sweep
+  completeness: nothing performed is a skip, a partial sweep is a warning that says how far it
+  got, and only a complete sweep can pass.
+- **`--env-file` was declared twice in the argument parser**, so the secrets flag silently did
+  nothing and its value was read as an environment name. The flag is `--dotenv`; `--env` belongs
+  to `trust init`.
+- **The token probe shadowed the imported `section` resolver** with a loop variable.
+
 ## [1.0.1] — 2026-07-30
 
 Renamed to `trust-verify` and published unscoped. The previous scope named the author

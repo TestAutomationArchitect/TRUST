@@ -231,3 +231,57 @@ test("preflight makes no HTTP requests when reach is disabled", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("preflight fails an auth strategy whose IdP is outside the allowlist", async () => {
+  const config = baseConfig({
+    auth: { strategies: { svc: { type: "client-credentials", tokenUrl: "https://idp.elsewhere.example.com/token", clientId: "a" } } },
+  });
+  const { checks, ok } = await runPreflight(config, { profile: "authenticated", reach: false });
+  assert.equal(ok, false);
+  // Acquisition goes through the guarded client, so an unlisted IdP fails at sign-in rather
+  // than at the probe that needed the token.
+  assert.match(checks.find((c) => c.name === "auth svc").detail, /NOT in targets.allowedHosts/);
+});
+
+test("preflight names the missing input rather than reporting a failed login", async () => {
+  const config = baseConfig({
+    targets: { web: "https://dev.example.com", allowedHosts: ["dev.example.com", "cognito-idp.us-east-1.amazonaws.com"] },
+    auth: {
+      strategies: {
+        userA: { type: "cognito-srp", region: "us-east-1", userPoolId: "us-east-1_A", clientId: "c", username: "u", passwordEnv: "TRUST_TEST_UNSET_PASSWORD" },
+        broken: { type: "cognito-srp", region: "us-east-1", clientId: "c" },
+      },
+    },
+  });
+  const { checks } = await runPreflight(config, { profile: "authenticated", reach: false });
+  assert.match(checks.find((c) => c.name === "auth userA").detail, /TRUST_TEST_UNSET_PASSWORD not set/);
+  assert.match(checks.find((c) => c.name === "auth broken").detail, /missing userPoolId, username/);
+});
+
+test("preflight catches a section pointing at an undeclared strategy", async () => {
+  const config = baseConfig({
+    auth: { strategies: { userA: { type: "static", tokenEnv: "T" } } },
+    graphql: { endpoint: "https://dev.example.com/graphql", tokenA: "userA", tokenB: "userB" },
+  });
+  const { checks, ok } = await runPreflight(config, { profile: "authenticated", reach: false });
+  assert.equal(ok, false);
+  assert.equal(checks.find((c) => c.name === "graphql.tokenA").status, "ok");
+  assert.match(checks.find((c) => c.name === "graphql.tokenB").detail, /not declared in auth.strategies/);
+});
+
+test("preflight does not authenticate — a check that costs a login stops being run", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error("preflight must not sign in");
+  };
+  try {
+    const config = baseConfig({
+      targets: { web: "https://dev.example.com", allowedHosts: ["dev.example.com", "idp.example.com"] },
+      auth: { strategies: { svc: { type: "client-credentials", tokenUrl: "https://idp.example.com/t", clientId: "a" } } },
+    });
+    const { ok } = await runPreflight(config, { profile: "authenticated", reach: false });
+    assert.equal(ok, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

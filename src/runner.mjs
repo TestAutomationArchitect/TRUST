@@ -10,6 +10,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { SafeHttpClient, SafetyError, validateConfig } from "./safety.mjs";
 import { resolveBudget, resolvedSections } from "./config.mjs";
+import { resolveAuth } from "./auth/index.mjs";
 import { exitCodeFor, summarize } from "./finding.mjs";
 import { buildRunReport, writeRunReport } from "./report.mjs";
 import { registerCatalogEntries, registerDomains, registerRootCauses, registerSummaryRules } from "./catalog.mjs";
@@ -150,6 +151,12 @@ export async function runProfile({ config, profile, out = "", baseDir = process.
   const startedAt = new Date().toISOString();
   const findings = [];
 
+  // Credentials are acquired before any probe runs, through the same guarded client — an IdP
+  // is a host like any other and must be allowlisted. A strategy that cannot resolve is not
+  // fatal: probes referencing it skip with the reason, and the rest of the run proceeds.
+  client.beginSuite("auth");
+  client.credentials = await resolveAuth(config, client, { onEvent });
+
   for (const probe of selected) {
     client.beginSuite(probe.name);
     onEvent({ type: "module", name: probe.name, label: probe.label });
@@ -183,6 +190,7 @@ export async function runProfile({ config, profile, out = "", baseDir = process.
     blocked: client.blocked,
     budget: { ...budget, spentBySuite: client.suiteSpend },
     sectionAliases: resolvedSections(config),
+    credentials: [...client.credentials.values()].map((c) => ({ name: c.name, strategy: c.type, kind: c.kind ?? null, ok: !c.error, expiresAt: c.expiresAt ?? null, error: c.error ?? null })),
     startedAt,
     finishedAt: new Date().toISOString(),
   });

@@ -9,6 +9,7 @@
 
 import { finding, skipped, inconclusive } from "../finding.mjs";
 import { section } from "../config.mjs";
+import { authInit, credentialFor } from "../auth/index.mjs";
 
 export async function runMobileProbes(config, client) {
   // The canonical section, resolved through conventional spellings — an app that calls it
@@ -99,20 +100,22 @@ export async function runMobileProbes(config, client) {
   if (!mobile.apiEndpoint) {
     out.push(skipped("MOBILE-ROOT-DETECTION", "API refuses traffic from compromised devices", "config.mobile.apiEndpoint is not defined"));
   } else {
-    const token = mobile.tokenEnv ? process.env[mobile.tokenEnv] : undefined;
+    const { credential: token, reason } = credentialFor(client, mobile, "token");
     if (!token) {
-      out.push(skipped("MOBILE-ROOT-DETECTION", "API refuses traffic from compromised devices", `${mobile.tokenEnv ?? "mobile.tokenEnv"} is not set`));
+      out.push(skipped("MOBILE-ROOT-DETECTION", "API refuses traffic from compromised devices", reason));
     } else {
       try {
         const response = await client.request(mobile.apiEndpoint, {
-          headers: {
-            authorization: `Bearer ${token}`,
-            "user-agent": mobile.userAgent ?? "TRUST-MobileProbe/1.0",
-            // Attestation headers a legitimate client would supply, deliberately
-            // asserting a compromised device.
-            [mobile.attestationHeader ?? "x-device-integrity"]: "compromised",
-            "x-device-rooted": "true",
-          },
+          ...authInit(token, {
+            header: mobile.authHeader ?? "authorization",
+            headers: {
+              "user-agent": mobile.userAgent ?? "TRUST-MobileProbe/1.0",
+              // Attestation headers a legitimate client would supply, deliberately
+              // asserting a compromised device.
+              [mobile.attestationHeader ?? "x-device-integrity"]: "compromised",
+              "x-device-rooted": "true",
+            },
+          }),
         });
         const text = (await response.text()).slice(0, 500);
         const refused = response.status === 401 || response.status === 403 || /integrity|attestation|rooted|jailbroken/i.test(text);

@@ -18,10 +18,11 @@
 import { validateConfig, SafeHttpClient, SafetyError } from "./safety.mjs";
 import { section, resolveBudget, resolvedSections } from "./config.mjs";
 import { decodeJwt, subjectOf } from "./probes/token.mjs";
+import { STRATEGY_TYPES, exportNameFor } from "./auth/index.mjs";
 import { PROFILES } from "./runner.mjs";
 
 /** Roughly how many requests each suite spends, for a budget sanity check. */
-const TYPICAL_SPEND = { token: 0, web: 40, injection: 30, api: 14, storage: 5, agent: 16, mobile: 5 };
+const TYPICAL_SPEND = { auth: 2, token: 0, web: 40, injection: 30, api: 14, storage: 5, agent: 16, mobile: 5 };
 
 const check = (name, status, detail) => ({ name, status, detail });
 
@@ -102,6 +103,102 @@ function tokenChecks(config) {
   return results;
 }
 
+/** What each strategy type cannot work without, and where it will send credentials. */
+const STRATEGY_REQUIREMENTS = {
+  static: { fields: [], envFields: ["tokenEnv"] },
+  "client-credentials": { fields: ["tokenUrl", "clientId"], envFields: [], urlFields: ["tokenUrl"] },
+  "okta-ropc": { fields: ["clientId", "username"], envFields: ["passwordEnv"], urlFields: ["tokenUrl", "issuer"] },
+  "cognito-srp": { fields: ["userPoolId", "clientId", "username"], envFields: ["passwordEnv"] },
+  "cognito-identity-pool": { fields: ["identityPoolId", "providerName"], envFields: [] },
+  sigv4: { fields: ["region"], envFields: [] },
+};
+
+/** The IdP host a strategy will contact, which must be allowlisted like any other host. */
+function authHost(strategy) {
+  const type = strategy.type ?? "static";
+  const region = strategy.region ?? String(strategy.userPoolId ?? strategy.identityPoolId ?? "").split(/[_:]/)[0];
+  if (strategy.endpoint) return safeHost(strategy.endpoint);
+  if (type === "cognito-srp") return region ? `cognito-idp.${region}.amazonaws.com` : null;
+  if (type === "cognito-identity-pool") return region ? `cognito-identity.${region}.amazonaws.com` : null;
+  return safeHost(strategy.tokenUrl ?? strategy.issuer);
+}
+
+const safeHost = (url) => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Auth strategies, checked declaratively. Preflight deliberately does not *acquire* anything:
+ * a sign-in has side effects at the IdP — rate limits, lockout counters, audit entries — and a
+ * check that costs a login is a check teams stop running. `trust tokens` does the real thing.
+ */
+function authChecks(config) {
+  const strategies = config.auth?.strategies ?? {};
+  const results = [];
+  const allowed = new Set(config.targets?.allowedHosts ?? []);
+
+  for (const [name, strategy] of Object.entries(strategies)) {
+    const type = strategy.type ?? "static";
+    const requirements = STRATEGY_REQUIREMENTS[type];
+    if (!requirements) {
+      results.push(check(`auth ${name}`, "fail", `unknown strategy type "${type}" (expected one of: ${STRATEGY_TYPES.join(", ")})`));
+      continue;
+    }
+    const missing = requirements.fields.filter((field) => !strategy[field]);
+    if (type === "okta-ropc" && !strategy.tokenUrl && !strategy.issuer) missing.push("tokenUrl or issuer");
+    if (type === "cognito-identity-pool" && !strategy.idTokenFrom && !strategy.idTokenEnv) missing.push("idTokenFrom or idTokenEnv");
+    if (missing.length) {
+      results.push(check(`auth ${name}`, "fail", `${type}: missing ${missing.join(", ")}`));
+      continue;
+    }
+    if (strategy.idTokenFrom && !strategies[strategy.idTokenFrom]) {
+      results.push(check(`auth ${name}`, "fail", `${type}: idTokenFrom "${strategy.idTokenFrom}" is not a declared strategy`));
+      continue;
+    }
+
+    const unset = [
+      ...requirements.envFields.map((field) => strategy[field]).filter(Boolean),
+      ...(type === "sigv4" ? [strategy.accessKeyIdEnv ?? "AWS_ACCESS_KEY_ID", strategy.secretAccessKeyEnv ?? "AWS_SECRET_ACCESS_KEY"] : []),
+      ...(strategy.clientSecretEnv ? [strategy.clientSecretEnv] : []),
+    ].filter((envName) => !process.env[envName]);
+    const cached = type !== "sigv4" && process.env[exportNameFor(name, strategy)];
+
+    if (unset.length && !cached) {
+      results.push(check(`auth ${name}`, "fail", `${type}: ${unset.join(", ")} not set in the environment`));
+      continue;
+    }
+
+    const host = authHost(strategy);
+    if (host && !allowed.has(host)) {
+      // Acquisition goes through the same guarded client as everything else, so an IdP outside
+      // the allowlist fails at sign-in rather than at the probe that needed the token.
+      results.push(check(`auth ${name}`, "fail", `${type}: ${host} is NOT in targets.allowedHosts — acquisition will be refused`));
+      continue;
+    }
+    results.push(check(`auth ${name}`, "ok", cached ? `${type}: reusing ${exportNameFor(name, strategy)} from the environment` : `${type}: inputs present${host ? `, ${host} allowlisted` : ""}`));
+  }
+
+  // A section may name a strategy instead of an env var; a typo there would surface as a skip
+  // in the middle of the run.
+  for (const [canonical, keys] of Object.entries({ api: ["tokenA", "tokenB"], storage: ["tokenA", "tokenB"], agent: ["accessTokenA", "accessTokenB"], mobile: ["token"] })) {
+    const { value, key } = section(config, canonical);
+    for (const field of keys) {
+      const reference = value?.[field];
+      if (typeof reference !== "string" || !reference) continue;
+      results.push(
+        strategies[reference]
+          ? check(`${key}.${field}`, "ok", `uses auth strategy "${reference}"`)
+          : check(`${key}.${field}`, "fail", `names strategy "${reference}", which is not declared in auth.strategies`),
+      );
+    }
+  }
+  return results;
+}
+
 /**
  * Run the preflight. `reach` performs one TLS handshake per allowlisted host; set it false
  * for a fully offline check.
@@ -147,12 +244,14 @@ export async function runPreflight(config, { profile = "all", reach = true } = {
     );
   }
 
-  // 3. Tokens.
+  // 3. Tokens and auth strategies.
+  checks.push(...authChecks(config));
   checks.push(...tokenChecks(config));
 
   // 4. Budget sanity: will the profile's cap cover the suites it runs?
   const budget = resolveBudget(config, profile);
-  const modules = PROFILES[profile]?.modules ?? [];
+  // Acquisition spends from the same budget as the probes, so it belongs in the estimate.
+  const modules = [...(Object.keys(config.auth?.strategies ?? {}).length ? ["auth"] : []), ...(PROFILES[profile]?.modules ?? [])];
   const estimate = modules.reduce((sum, name) => sum + (TYPICAL_SPEND[name] ?? 10), 0);
   checks.push(
     estimate > budget.total

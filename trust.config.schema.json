@@ -60,7 +60,7 @@
           "type": "object",
           "description": "Per-suite request caps, so one long sweep cannot exhaust the run before later suites execute.",
           "additionalProperties": { "type": "integer", "minimum": 1 },
-          "propertyNames": { "enum": ["token", "web", "injection", "api", "storage", "agent", "mobile"] }
+          "propertyNames": { "enum": ["auth", "token", "web", "injection", "api", "storage", "agent", "mobile"] }
         },
         "minimumDelayMs": { "type": "integer", "minimum": 50, "description": "Floor between consecutive requests." },
         "requestTimeoutMs": { "type": "integer", "minimum": 1000 },
@@ -73,6 +73,50 @@
         "productionOverride": {
           "type": "boolean",
           "description": "Required to target production. Set only with written authorisation for that specific system."
+        }
+      },
+      "additionalProperties": false
+    },
+    "auth": {
+      "type": "object",
+      "description": "Declarative credential acquisition. Strategies are resolved once before probes run; a section references one by name (\"tokenA\": \"userA\") instead of naming an env var.",
+      "properties": {
+        "strategies": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "enum": ["static", "client-credentials", "okta-ropc", "cognito-srp", "cognito-identity-pool", "sigv4"],
+                "description": "static: a bearer token from the environment. cognito-srp: USER_SRP_AUTH, so no plaintext-password grant has to be enabled. cognito-identity-pool: exchange an ID token for temporary AWS credentials. sigv4: sign with AWS keys."
+              },
+              "exportAs": { "type": "string", "description": "Env var this credential is cached in and written to by `trust tokens`. Default TRUST_TOKEN_<NAME>." },
+              "scheme": { "type": "string", "description": "Authorization scheme. Default Bearer; \"\" sends the raw token." },
+              "use": { "enum": ["idToken", "accessToken"], "description": "Which token the strategy yields." },
+              "tokenUrl": { "type": "string", "format": "uri" },
+              "issuer": { "type": "string", "format": "uri" },
+              "clientId": { "type": "string" },
+              "clientSecretEnv": { "type": "string", "description": "Env var NAME holding the client secret." },
+              "username": { "type": "string" },
+              "passwordEnv": { "type": "string", "description": "Env var NAME holding the password. Never the password itself." },
+              "scope": { "type": "string" },
+              "audience": { "type": "string" },
+              "tokenEnv": { "type": "string", "description": "static only — env var NAME holding the token." },
+              "region": { "type": "string" },
+              "userPoolId": { "type": "string" },
+              "identityPoolId": { "type": "string" },
+              "providerName": { "type": "string", "description": "Logins key, e.g. cognito-idp.us-east-1.amazonaws.com/us-east-1_AbC123." },
+              "idTokenFrom": { "type": "string", "description": "Name of another strategy whose ID token is exchanged." },
+              "idTokenEnv": { "type": "string" },
+              "service": { "type": "string", "description": "SigV4 service, e.g. execute-api, s3, bedrock." },
+              "accessKeyIdEnv": { "type": "string" },
+              "secretAccessKeyEnv": { "type": "string" },
+              "sessionTokenEnv": { "type": "string" },
+              "endpoint": { "type": "string", "format": "uri", "description": "Override the IdP endpoint. It must be in targets.allowedHosts — acquisition is guarded like any other request." }
+            },
+            "additionalProperties": false
+          }
         }
       },
       "additionalProperties": false

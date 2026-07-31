@@ -49,6 +49,11 @@ export { scaffold, configTemplate } from "./init.mjs";
 export { runPreflight } from "./preflight.mjs";
 export { section, resolveExtends, resolveBudget, resolvedSections, SECTION_ALIASES } from "./config.mjs";
 
+// ── Auth strategies ─────────────────────────────────────────────────
+// A custom probe reaches for credentialFor()/authInit() exactly as the built-ins do, so an
+// org-specific probe supports SigV4 and acquired tokens without knowing how either works.
+export { resolveAuth, acquire, credentialFor, authInit, jwtClaims, signRequest, STRATEGY_TYPES, exportNameFor } from "./auth/index.mjs";
+
 // ── Built-in probe modules, for embedding one at a time ─────────────
 export { runWebProbes } from "./probes/web.mjs";
 export { runApiProbes } from "./probes/api.mjs";

@@ -52,19 +52,23 @@ function endpointFor(agent, agentId) {
   return agent.runtimeEndpoint;
 }
 
-async function invoke(client, agent, token, params) {
+async function invoke(client, agent, credential, params) {
   const url = endpointFor(agent, params.agentId);
-  const scheme = agent.authScheme ?? "Bearer";
-  const headerName = agent.authHeader ?? "authorization";
-  const response = await client.request(url, {
-    method: agent.method ?? "POST",
+  // Bedrock and API Gateway runtimes are commonly reached with SigV4 rather than a bearer
+  // token; authInit covers both, and the client signs after its guards pass.
+  const auth = authInit(credential, {
+    header: agent.authHeader ?? "authorization",
+    scheme: agent.authScheme ?? "Bearer",
     headers: {
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
-      [headerName]: scheme ? `${scheme} ${token}` : token,
       ...(agent.headers ?? {}),
       ...(params.headers ?? {}),
     },
+  });
+  const response = await client.request(url, {
+    ...auth,
+    method: agent.method ?? "POST",
     body: JSON.stringify(buildBody(agent, params)),
     agentInvocation: true,
   });
@@ -105,11 +109,9 @@ export async function runAgentProbes(config, client) {
     ];
   }
 
-  const tokenA = agent.accessTokenAEnv ? process.env[agent.accessTokenAEnv] : undefined;
-  const tokenB = agent.accessTokenBEnv ? process.env[agent.accessTokenBEnv] : undefined;
-  if (!tokenA) {
-    return [skipped("AGENT-CONFIG", "AI agent probe suite", `${agent.accessTokenAEnv ?? "agent.accessTokenAEnv"} is not set in the environment`)];
-  }
+  const { credential: tokenA, reason: reasonA } = credentialFor(client, agent, "accessTokenA");
+  const { credential: tokenB, reason: reasonB } = credentialFor(client, agent, "accessTokenB");
+  if (!tokenA) return [skipped("AGENT-CONFIG", "AI agent probe suite", reasonA)];
 
   const allowedAgentId = agent.allowedAgentId ?? null;
   const out = [];

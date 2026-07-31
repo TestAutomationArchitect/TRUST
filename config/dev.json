@@ -18,6 +18,33 @@
     "productionOverride": false
   },
 
+  // Credentials, acquired rather than pasted. Each strategy is resolved once before probes
+  // run and referenced by name below ("tokenA": "userA"). An IdP host must appear in
+  // targets.allowedHosts like any other host: acquisition goes through the guarded client.
+  // Uncomment to use — the sections below fall back to tokenAEnv / tokenBEnv without it.
+  // "auth": {
+  //   "strategies": {
+  //     "userA": {
+  //       "type": "cognito-srp",              // SRP: no plaintext-password grant to enable
+  //       "region": "us-east-1",
+  //       "userPoolId": "us-east-1_EXAMPLE",
+  //       "clientId": "REPLACE_WITH_APP_CLIENT_ID",
+  //       "username": "user-a@example.com",
+  //       "passwordEnv": "USER_A_PASSWORD",   // the NAME of the variable, never the password
+  //       "use": "idToken"
+  //     },
+  //     "userB": { "type": "cognito-srp", "region": "us-east-1", "userPoolId": "us-east-1_EXAMPLE",
+  //                "clientId": "REPLACE_WITH_APP_CLIENT_ID", "username": "user-b@example.com",
+  //                "passwordEnv": "USER_B_PASSWORD", "use": "idToken" },
+  //     "machine": { "type": "client-credentials", "tokenUrl": "https://idp.dev.example.com/oauth2/v1/token",
+  //                  "clientId": "REPLACE", "clientSecretEnv": "CLIENT_SECRET", "scope": "api.read" },
+  //     "signed": { "type": "cognito-identity-pool", "region": "us-east-1",
+  //                 "identityPoolId": "us-east-1:00000000-0000-0000-0000-000000000000",
+  //                 "providerName": "cognito-idp.us-east-1.amazonaws.com/us-east-1_EXAMPLE",
+  //                 "idTokenFrom": "userA", "service": "execute-api" }
+  //   }
+  // },
+
   "architecture": "Browser → IdP (OIDC/PKCE) → API Gateway → GraphQL API\n                                          → Object storage (per-tenant prefixes)\n        → IdP (OAuth2) → Agent runtime\n                              └── L1 Orchestrator\n                                    ├── L2 Data Coordinator → L3 SQL Executor\n                                    └── L2 Knowledge Coordinator (RAG)",
 
   "limitations": [
@@ -38,6 +65,8 @@
     "authScheme": "Bearer",
     "tokenAEnv": "AUTH_TOKEN_A",
     "tokenBEnv": "AUTH_TOKEN_B",
+    // …or name a strategy from auth.strategies instead, and nothing has to be pasted into .env:
+    // "tokenA": "userA", "tokenB": "userB",
 
     // User B attempts to read a record owned by User A.
     "crossUser": {

@@ -69,6 +69,10 @@ export function configTemplate({ name, target, environment }) {
   // Org-specific probes. Paths resolve against this file's directory first, then the
   // working directory — so both of these work from a repo root:
   // "probes": ["../trust-probes/example.mjs"]
+
+  // Acquire credentials instead of pasting them — add the IdP host to allowedHosts first:
+  // "auth": { "strategies": { "userA": { "type": "cognito-srp", "region": "us-east-1",
+  //   "userPoolId": "…", "clientId": "…", "username": "…", "passwordEnv": "USER_A_PASSWORD" } } }
 }
 `;
 }
@@ -87,6 +91,12 @@ STORAGE_TOKEN_B=
 # AI agent runtime identities
 AGENT_TOKEN_A=
 AGENT_TOKEN_B=
+
+# Passwords, if config declares auth.strategies instead of pasted tokens. TRUST signs in
+# through SRP or an OAuth2 grant, so nothing here has to be refreshed by hand.
+# USER_A_PASSWORD=
+# USER_B_PASSWORD=
+# CLIENT_SECRET=
 `;
 
 export const EXAMPLE_PROBE = `/**
@@ -142,7 +152,7 @@ export default defineProbe({
 `;
 
 /** Entries only — the "# TRUST" header is written around them, never compared against. */
-const GITIGNORE_ENTRIES = [".env", "reports/", ".trends/"];
+const GITIGNORE_ENTRIES = [".env", ".trust-credentials.env", "reports/", ".trends/"];
 
 /**
  * Write the scaffold. Returns { written, skipped } paths.
