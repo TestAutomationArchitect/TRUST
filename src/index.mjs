@@ -54,8 +54,15 @@ export { section, resolveExtends, resolveBudget, resolvedSections, SECTION_ALIAS
 // org-specific probe supports SigV4 and acquired tokens without knowing how either works.
 export { resolveAuth, acquire, credentialFor, authInit, jwtClaims, signRequest, STRATEGY_TYPES, exportNameFor } from "./auth/index.mjs";
 
+// ── Conditional execution ───────────────────────────────────────────
+// A custom probe gates on an upstream finding exactly as a declared boundary does — the run's
+// findings so far arrive as the third argument to run(config, client, { findings }).
+export { chainGate, statusIndex, activationNote, DEFAULT_CONDITION } from "./chain.mjs";
+
 // ── Built-in probe modules, for embedding one at a time ─────────────
 export { runWebProbes } from "./probes/web.mjs";
+export { runIdpProbes } from "./probes/idp.mjs";
+export { runIsolationProbes, ISOLATION_TYPES } from "./probes/isolation.mjs";
 export { runApiProbes } from "./probes/api.mjs";
 export { runStorageProbes } from "./probes/storage.mjs";
 export { runAgentProbes } from "./probes/agent.mjs";
