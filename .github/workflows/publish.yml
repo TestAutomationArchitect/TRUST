@@ -95,7 +95,7 @@ jobs:
       # what makes it possible, and provenance is generated as part of the exchange.
       - name: Publish to npm via trusted publishing
         if: startsWith(github.ref, 'refs/tags/v') && github.event.inputs.dry_run != 'true'
-        run: npm publish
+        run: npm publish --provenance
 
       # Airgapped partners install the checksummed tarball instead of using a registry.
       - name: Attach tarball to the release

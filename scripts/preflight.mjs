@@ -38,7 +38,17 @@ for (const hook of ["preinstall", "install", "postinstall"]) {
 }
 
 // 4. Provenance and public access must be declared.
-if (pkg.publishConfig?.provenance !== true) failures.push("publishConfig.provenance must be true so partners can verify the build.");
+// Provenance is a property of the CI publish, not of the package: setting it in
+// publishConfig makes every local publish fail with "provider: null". Assert that the
+// workflow asks for it instead.
+try {
+  const workflow = await readFile(path.join(root, ".github/workflows/publish.yml"), "utf8");
+  if (!/npm publish[^\n]*--provenance/.test(workflow)) {
+    failures.push("the publish workflow must run npm publish --provenance so releases are verifiable.");
+  }
+} catch {
+  notes.push("no publish workflow found — releases will carry no provenance attestation");
+}
 
 // 5. Tests must pass.
 try {

@@ -21,7 +21,11 @@ test("package is publishable and stdlib-only", () => {
   assert.ok(pkg.engines.node.startsWith(">=22"));
   assert.deepEqual(Object.keys(pkg.dependencies ?? {}), [], "TRUST must stay dependency-free");
   assert.deepEqual(Object.keys(pkg.peerDependencies ?? {}), []);
-  assert.equal(pkg.publishConfig.provenance, true, "partners must be able to verify provenance");
+  // Provenance belongs to the CI publish command, not to publishConfig: setting it there
+  // makes every local publish fail with "provider: null", since no CI provider is present.
+  assert.equal(pkg.publishConfig, undefined, "provenance must not be demanded of every publish");
+  const workflow = readFileSync(new URL("../.github/workflows/publish.yml", import.meta.url), "utf8");
+  assert.match(workflow, /npm publish[^\n]*--provenance/, "CI must still publish with provenance");
   for (const hook of ["preinstall", "install", "postinstall"]) {
     assert.equal(pkg.scripts[hook], undefined, `${hook} would break npm ci --ignore-scripts`);
   }

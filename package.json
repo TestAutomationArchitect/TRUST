@@ -49,9 +49,6 @@
     "ACCEPTABLE_USE.md",
     ".env.example"
   ],
-  "publishConfig": {
-    "provenance": true
-  },
   "scripts": {
     "trust": "node src/cli.mjs",
     "passive": "node --env-file=.env src/cli.mjs run --config config/dev.json --profile passive",
