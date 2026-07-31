@@ -21,22 +21,27 @@ import { runApiProbes } from "./probes/api.mjs";
 import { runStorageProbes } from "./probes/storage.mjs";
 import { runAgentProbes } from "./probes/agent.mjs";
 import { runMobileProbes } from "./probes/mobile.mjs";
+import { runIsolationProbes } from "./probes/isolation.mjs";
+import { runIdpProbes } from "./probes/idp.mjs";
 
 export const PROFILES = {
-  passive: { modules: ["web", "injection"], auth: "none", description: "Unauthenticated probes against the public surface" },
-  authenticated: { modules: ["token", "api", "storage"], auth: "identity tokens", description: "API and storage authorisation with two identities" },
+  passive: { modules: ["web", "injection", "idp"], auth: "none", description: "Unauthenticated probes against the public surface and the identity provider" },
+  authenticated: { modules: ["token", "api", "storage", "isolation"], auth: "identity tokens", description: "API, storage and declared isolation boundaries with two identities" },
   agent: { modules: ["token", "agent"], auth: "bearer tokens", description: "AI agent runtime, hierarchy and LLM safety" },
   mobile: { modules: ["mobile"], auth: "optional", description: "Mobile platform surface (server-observable controls)" },
-  all: { modules: ["token", "web", "injection", "api", "storage", "agent", "mobile"], auth: "all tokens", description: "Every module" },
+  all: { modules: ["token", "web", "injection", "idp", "api", "storage", "isolation", "agent", "mobile"], auth: "all tokens", description: "Every module" },
 };
 
 /** Built-in probe modules, in execution order. */
 export const BUILTIN_PROBES = [
   { name: "token", label: "token hygiene (no requests)", run: runTokenProbes },
   { name: "web", label: "web / infrastructure", run: runWebProbes },
+  { name: "idp", label: "identity provider configuration", run: runIdpProbes },
   { name: "injection", label: "input handling", run: runInjectionProbes },
   { name: "api", label: "API / authorisation", run: runApiProbes },
   { name: "storage", label: "storage isolation", run: runStorageProbes },
+  // After api and storage, so a declared boundary may depend on a built-in finding.
+  { name: "isolation", label: "declared isolation boundaries", run: runIsolationProbes },
   { name: "agent", label: "AI agent runtime", run: runAgentProbes },
   { name: "mobile", label: "mobile platform", run: runMobileProbes },
 ];
@@ -162,7 +167,10 @@ export async function runProfile({ config, profile, out = "", baseDir = process.
     onEvent({ type: "module", name: probe.name, label: probe.label });
     let produced;
     try {
-      produced = await probe.run(config, client);
+      // Probes receive what the run has produced so far, so a chained test can gate on an
+      // upstream result from another module. A probe that ignores the third argument is
+      // unaffected — every built-in did until conditional execution existed.
+      produced = await probe.run(config, client, { findings: [...findings] });
     } catch (error) {
       if (!(error instanceof SafetyError)) throw error;
       // A guard tripping is a result, not a crash: record it and keep going.

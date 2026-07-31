@@ -66,7 +66,7 @@ test("defineProbe validates shape and defaults to every profile", () => {
 test("resolveProbes selects built-ins by profile and custom probes by declaration", () => {
   const custom = defineProbe({ name: "acme", profiles: ["passive"], run: async () => [] });
   const passive = resolveProbes("passive", [custom]).map((p) => p.name);
-  assert.deepEqual(passive, ["web", "injection", "acme"]);
+  assert.deepEqual(passive, ["web", "idp", "injection", "acme"]);
   assert.deepEqual(resolveProbes("agent", [custom]).map((p) => p.name), ["token", "agent"], "a passive-only probe must not run in the agent profile");
   assert.ok(resolveProbes("all", [custom]).map((p) => p.name).includes("acme"));
 });

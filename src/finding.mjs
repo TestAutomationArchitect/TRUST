@@ -84,7 +84,7 @@ function stringify(value) {
  *   severity  the impact IF this control fails. It is a property of the control, not of
  *             the outcome, which is why a passing test can legitimately be `critical`.
  */
-export function finding({ id, title, status, severity = "info", evidence = "", remediation = "", observed = "", domain = "", category = "" }) {
+export function finding({ id, title, status, severity = "info", evidence = "", remediation = "", observed = "", domain = "", category = "", activatedBy = "" }) {
   if (!id) throw new TypeError("finding.id is required");
   if (!title) throw new TypeError(`finding.title is required (id=${id})`);
   if (!STATUSES.includes(status)) {
@@ -108,6 +108,10 @@ export function finding({ id, title, status, severity = "info", evidence = "", r
     // so the combined report does not have to re-derive it from a catalogue it cannot see.
     ...(domain ? { domain } : {}),
     ...(category ? { category } : {}),
+    // The upstream failure that made this test reachable, for a chained probe. It survives
+    // into the run JSON so the report can narrate an executed attack path rather than
+    // presenting two findings that happen to be adjacent.
+    ...(activatedBy ? { activatedBy } : {}),
   };
 }
 

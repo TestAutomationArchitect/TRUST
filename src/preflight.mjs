@@ -19,10 +19,12 @@ import { validateConfig, SafeHttpClient, SafetyError } from "./safety.mjs";
 import { section, resolveBudget, resolvedSections } from "./config.mjs";
 import { decodeJwt, subjectOf } from "./probes/token.mjs";
 import { STRATEGY_TYPES, exportNameFor } from "./auth/index.mjs";
+import { ISOLATION_TYPES } from "./probes/isolation.mjs";
+import { getTestMeta } from "./catalog.mjs";
 import { PROFILES } from "./runner.mjs";
 
 /** Roughly how many requests each suite spends, for a budget sanity check. */
-const TYPICAL_SPEND = { auth: 2, token: 0, web: 40, injection: 30, api: 14, storage: 5, agent: 16, mobile: 5 };
+const TYPICAL_SPEND = { auth: 2, token: 0, web: 40, injection: 30, idp: 3, api: 14, storage: 5, agent: 16, mobile: 5 };
 
 const check = (name, status, detail) => ({ name, status, detail });
 
@@ -44,6 +46,13 @@ function configuredEndpoints(config) {
   const mobile = section(config, "mobile");
   add(`${mobile.key ?? "mobile"}.apiEndpoint`, mobile.value?.apiEndpoint);
   add(`${mobile.key ?? "mobile"}.deepLinkEndpoint`, mobile.value?.deepLinkEndpoint);
+  const idp = section(config, "idp").value;
+  add("idp.discoveryUrl", idp?.discoveryUrl);
+  add("idp.loginUrl", idp?.loginUrl);
+  for (const spec of config.isolation ?? []) {
+    add(`isolation[${spec.id ?? "?"}].endpoint`, spec.endpoint);
+    add(`isolation[${spec.id ?? "?"}].baseUrl`, spec.baseUrl);
+  }
   return out;
 }
 
@@ -200,6 +209,53 @@ function authChecks(config) {
 }
 
 /**
+ * Declared isolation boundaries, checked without issuing a request. A boundary that cannot
+ * produce a verdict is worth knowing about before the run: an unknown type, a chain pointing at
+ * an ID nothing produces, or a mutation guard with denial tests switched off — all of which
+ * would otherwise surface as a skip in the middle of the output.
+ */
+function isolationChecks(config) {
+  const specs = config.isolation ?? [];
+  const results = [];
+  const declaredIds = new Set(specs.map((spec) => spec.id).filter(Boolean));
+  const twoIdentities = new Set(["record-ownership", "prefix-scoped-storage"]);
+
+  for (const spec of specs) {
+    const name = `isolation ${spec.id ?? "(no id)"}`;
+    if (!spec.id) {
+      results.push(check(name, "fail", "a spec has no id, so its result could not be attributed to a finding"));
+      continue;
+    }
+    if (!ISOLATION_TYPES.includes(spec.type)) {
+      results.push(check(name, "fail", `type "${spec.type ?? "(none)"}" is not one of: ${ISOLATION_TYPES.join(", ")}`));
+      continue;
+    }
+    if (twoIdentities.has(spec.type) && !spec.tokenB && !spec.tokenBEnv) {
+      // One identity cannot demonstrate a boundary, so this would skip rather than pass.
+      results.push(check(name, "warn", `${spec.type} needs a second identity (tokenB or tokenBEnv) — it will skip`));
+      continue;
+    }
+    if (spec.type === "mutation-guard" && config.safety?.allowDenialTests !== true && config.safety?.allowWrites !== true) {
+      results.push(check(name, "warn", "mutation-guard attempts a mutation expected to be refused — set safety.allowDenialTests, or it will be blocked"));
+      continue;
+    }
+    if (spec.type === "identity-injection" && !(spec.successIndicators ?? []).length) {
+      results.push(check(name, "warn", "identity-injection has no successIndicators, so acceptance of the injected identity cannot be detected"));
+      continue;
+    }
+    // A dependsOn typo silently disables a test, which is worse than one that fails loudly.
+    const upstream = [spec.dependsOn].flat().filter(Boolean);
+    const unknown = upstream.filter((id) => !declaredIds.has(id) && !getTestMeta(id).purpose);
+    if (unknown.length) {
+      results.push(check(name, "warn", `depends on ${unknown.join(", ")}, which is neither a known test nor another declared boundary`));
+      continue;
+    }
+    results.push(check(name, "ok", `${spec.type}${upstream.length ? `, runs only when ${upstream.join(", ")} ${spec.condition ?? "failed"}` : ""}`));
+  }
+  return results;
+}
+
+/**
  * Run the preflight. `reach` performs one TLS handshake per allowlisted host; set it false
  * for a fully offline check.
  */
@@ -247,12 +303,15 @@ export async function runPreflight(config, { profile = "all", reach = true } = {
   // 3. Tokens and auth strategies.
   checks.push(...authChecks(config));
   checks.push(...tokenChecks(config));
+  checks.push(...isolationChecks(config));
 
   // 4. Budget sanity: will the profile's cap cover the suites it runs?
   const budget = resolveBudget(config, profile);
   // Acquisition spends from the same budget as the probes, so it belongs in the estimate.
   const modules = [...(Object.keys(config.auth?.strategies ?? {}).length ? ["auth"] : []), ...(PROFILES[profile]?.modules ?? [])];
-  const estimate = modules.reduce((sum, name) => sum + (TYPICAL_SPEND[name] ?? 10), 0);
+  // A declared boundary spends two requests at most (discover as A, attempt as B), which is
+  // knowable exactly rather than by estimate.
+  const estimate = modules.reduce((sum, name) => sum + (name === "isolation" ? (config.isolation ?? []).length * 2 : (TYPICAL_SPEND[name] ?? 10)), 0);
   checks.push(
     estimate > budget.total
       ? check(

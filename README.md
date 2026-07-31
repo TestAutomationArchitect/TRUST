@@ -111,6 +111,7 @@ trust/
 │   ├── preflight.mjs         `trust preflight` / `trust validate` checks
 │   ├── config.mjs            section aliases, `extends`, request budgets
 │   ├── auth/                 declarative strategies: SRP, OAuth2 grants, SigV4 signing
+│   ├── chain.mjs             dependsOn / condition — conditional execution
 │   ├── finding.mjs           finding() factory, redact(), canary(), headline()
 │   ├── catalog.mjs           test metadata, domains, root causes, attack paths  ← source of truth
 │   ├── report.mjs            per-run JSON + standalone HTML + surface derivation
@@ -121,12 +122,14 @@ trust/
 │       ├── injection.mjs     XSS, SQL error, SSTI, traversal, CRLF, host header, SSRF
 │       ├── api.mjs           cross-user, scoping, RBAC, identity, inventory, query cost, session
 │       ├── storage.mjs       object-store isolation, public access
+│       ├── idp.mjs           OIDC discovery, PKCE, implicit flow, native password grant
+│       ├── isolation.mjs     declared authorisation boundaries — five types, config-driven
 │       ├── agent.mjs         AI runtime: hierarchy, sessions, memory, injection, disclosure
 │       └── mobile.mjs        deep links, app-site association, attestation
 ├── scripts/
 │   ├── preflight.mjs         publish gate: no deps, no install scripts, no secrets shipped
 │   └── combined-report.mjs   deprecated shim → `trust report`
-├── test/                     134 tests over safety, auth, config, findings, reporting, probes
+├── test/                     161 tests over safety, auth, config, isolation, reporting, probes
 └── reports/                  generated output (gitignored)
 ```
 
@@ -136,8 +139,8 @@ trust/
 
 | Profile | Auth needed | Modules |
 |---|---|---|
-| `passive` | none | web, injection |
-| `authenticated` | identity tokens (two users) | token, api, storage |
+| `passive` | none | web, idp, injection |
+| `authenticated` | identity tokens (two users) | token, api, storage, isolation |
 | `agent` | bearer tokens + `allowAgentInvocations` | token, agent |
 | `mobile` | optional | mobile |
 | `all` | all tokens | every module |
@@ -321,6 +324,91 @@ For CI, acquire once and share:
 trust tokens --config config/dev.json --out .trust-credentials.env   # 0600, tokens never printed
 trust run --dotenv .trust-credentials.env --config config/dev.json --profile authenticated
 ```
+
+### Declared isolation boundaries
+
+Most real security bugs are authorisation failures, and the test never changes shape: act as A,
+act as B against A's resource, ask whether it was refused. Declaring the boundary is enough —
+TRUST supplies the test, the verdict and the report entry:
+
+```jsonc
+"isolation": [
+  { "id": "API-CROSS-USER-RECORD", "type": "record-ownership",
+    "description": "User B cannot read User A's record",
+    "endpoint": "https://api.dev.example.com/graphql",
+    "queryA": "query { listMyRecords(limit: 1) { items { id } } }",
+    "queryB": "query($id: ID!) { getRecord(id: $id) { id owner } }",
+    "tokenA": "userA", "tokenB": "userB", "severity": "high" }
+]
+```
+
+| Type | What it does | Identities |
+|---|---|---|
+| `record-ownership` | Discovers a record as A, requests it as B | two |
+| `prefix-scoped-storage` | Lists and reads another tenant's object prefix | two |
+| `enumeration` | Checks a list endpoint returns only the caller's own records | one |
+| `mutation-guard` | Attempts a privileged mutation, expecting refusal | one |
+| `identity-injection` | Sends a client-supplied identity field, expecting it to be ignored | one |
+
+The record ID is discovered rather than pinned in config, so a declared boundary survives a data
+reseed. A boundary needing two identities **skips** when only one is available rather than
+reporting a pass it did not earn, and an ambiguous response is a warning that says what was
+ambiguous — add `denialPatterns` for how your API phrases a refusal and the verdict sharpens.
+`mutation-guard` runs under `safety.allowDenialTests`, because a control that holds writes
+nothing.
+
+### Conditional execution
+
+A downstream test often only means something if an upstream boundary broke. Declare that, and
+the chain does two useful things — it saves the request, and it turns a skip into a statement
+about the system:
+
+```jsonc
+{ "id": "ACL-BYPASS", "dependsOn": "AGENT-ENDPOINT-COORDINATOR", "condition": "failed" }
+```
+
+```
+AGENT-ENDPOINT-COORDINATOR   FAIL  An external token reaches coordinator directly
+ACL-BYPASS                   FAIL  Reachable because AGENT-ENDPOINT-COORDINATOR failed.
+
+AGENT-ENDPOINT-EXECUTOR      PASS  An external token cannot reach executor
+ACL-BYPASS-EXECUTOR          SKIP  Not reachable — upstream control held (…-EXECUTOR passed)
+```
+
+`condition` is `failed` (the default), `passed` or `any`. Dependencies may point at any finding
+in the run, including one from a different probe module, and a `dependsOn` naming a test that
+never ran is reported rather than silently satisfying the gate. `trust preflight` catches that
+before the run.
+
+### Agent tiers
+
+An agent hierarchy is a list of endpoints with expectations, not a topology language:
+
+```jsonc
+"agent": {
+  "runtimeEndpoint": "https://agents.dev.example.com/invoke",
+  "accessTokenA": "userA",
+  "endpoints": [
+    { "name": "coordinator", "agentId": "coord-a", "expectDenied": true },
+    { "name": "coordinator-acl", "agentId": "coord-a", "expectDenied": false,
+      "expectPatterns": ["ACCESS-DENIED"], "dependsOn": "AGENT-ENDPOINT-COORDINATOR" }
+  ]
+}
+```
+
+An internal tier that accepts an end-user token has no boundary of its own — whatever the
+orchestrator enforces can be walked around by calling it directly, which is why `expectDenied`
+defaults to true and its failure is critical.
+
+### Identity provider posture
+
+The `idp` section checks the provider itself, unauthenticated: the discovery document, PKCE with
+S256, whether the implicit flow is still advertised, whether an unauthenticated token endpoint is
+compensated by PKCE, what the application's *own* authorisation request asks for, and whether a
+Cognito user pool still accepts `USER_PASSWORD_AUTH` — which bypasses federated sign-in and
+everything attached to it, including MFA. Checks that genuinely need a browser (session fixation
+across a real login, the code-verifier cookie after callback) are reported as skips carrying the
+manual procedure rather than guessed at.
 
 ### Trends and history
 

@@ -70,6 +70,20 @@ export const CATALOG = {
   "API-INTROSPECTION": { category: "Authorization — API", purpose: "Test whether GraphQL schema introspection is exposed to ordinary users, handing an attacker the full API surface." },
   "AUTH-PASSWORD-BYPASS": { category: "Authentication", purpose: "Verify the identity provider rejects direct username/password authentication so all users must pass through federated SSO." },
 
+  // ── Identity provider configuration (unauthenticated) ───────────────
+  "IDP-CONFIG": { category: "Authentication", purpose: "Validate that identity-provider configuration is present for IdP posture testing." },
+  "IDP-DISCOVERY": { category: "Authentication", purpose: "Verify the provider publishes a readable OIDC discovery document over an HTTPS issuer, which is what makes the remaining IdP checks conclusive rather than probable." },
+  "IDP-PKCE-SUPPORTED": { category: "Authentication", purpose: "Verify the provider supports PKCE with S256, without which a public client cannot protect an authorisation code in transit." },
+  "IDP-IMPLICIT-FLOW": { category: "Authentication", purpose: "Verify the implicit flow is not offered, since it returns tokens in the URL fragment where browser history, referrers and logs retain them." },
+  "IDP-CLIENT-AUTH": { category: "Authentication", purpose: "Verify that a token endpoint accepting unauthenticated clients is compensated by PKCE, so an intercepted authorisation code cannot simply be redeemed." },
+  "IDP-AUTHORIZE-REQUEST": { category: "Authentication", purpose: "Verify the application itself requests an authorisation code with an S256 challenge — what the provider supports and what the application asks for are different questions." },
+  "IDP-PASSWORD-GRANT": { category: "Authentication", purpose: "Verify the user pool refuses direct username/password authentication, so federated sign-in and everything attached to it cannot be bypassed." },
+  "IDP-SESSION-FIXATION": { category: "Session Lifecycle", purpose: "Verify the session identifier changes on authentication, so a pre-set session cannot be adopted by the victim." },
+  "IDP-CODE-VERIFIER-CLEARED": { category: "Session Lifecycle", purpose: "Verify the PKCE code verifier is cleared once the callback completes, so it cannot be reused from a persisted cookie." },
+
+  // ── Declared isolation boundaries ───────────────────────────────────
+  "ISOLATION-CONFIG": { category: "Authorization — API", purpose: "Validate that declarative isolation boundaries are configured. Declared boundaries carry their own category, since a boundary may be an API, storage or identity control." },
+
   // ── Storage ─────────────────────────────────────────────────────────
   "STORAGE-CONFIG": { category: "Authorization — Storage", purpose: "Validate that storage configuration is complete for isolation testing." },
   "STORAGE-PUBLIC-LISTING": { category: "Authorization — Storage", purpose: "Test whether the storage bucket or container can be listed or read without credentials." },
@@ -107,6 +121,13 @@ const PREFIX_RULES = [
     meta: (id) => ({
       category: "Sensitive File Exposure",
       purpose: `Verify that ${id.slice("WEB-EXPOSED-".length).toLowerCase().replace(/-/g, "/")} is not publicly accessible, preventing credential or source-code leakage.`,
+    }),
+  },
+  {
+    prefix: "AGENT-ENDPOINT-",
+    meta: (id) => ({
+      category: "Agent Hierarchy",
+      purpose: `Test whether the declared agent endpoint ${id.slice("AGENT-ENDPOINT-".length)} enforces the trust boundary its configuration claims for it.`,
     }),
   },
   {

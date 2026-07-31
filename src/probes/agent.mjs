@@ -11,6 +11,8 @@
 
 import { finding, skipped, inconclusive, canary } from "../finding.mjs";
 import { section } from "../config.mjs";
+import { authInit, credentialFor } from "../auth/index.mjs";
+import { chainGate, statusIndex, activationNote } from "../chain.mjs";
 
 const DEFAULT_SYSTEM_PROMPT_PATTERNS = [
   "you are an? (?:helpful |ai )?(?:assistant|agent)",
@@ -92,7 +94,7 @@ function matchAny(patterns, text) {
   return hits;
 }
 
-export async function runAgentProbes(config, client) {
+export async function runAgentProbes(config, client, context = {}) {
   // The canonical section, resolved through conventional spellings — an app that calls it
   // "agentCore" should not have to duplicate it under "agent".
   const { value: agent, key: agentKey } = section(config, "agent");
@@ -498,6 +500,77 @@ export async function runAgentProbes(config, client) {
     } catch (error) {
       out.push(inconclusive(probe.id, probe.title, `Invocation failed: ${error.message}`));
     }
+  }
+
+  // ── Declared agent endpoints (the simple form of a tier map) ──────
+  //
+  // A hierarchy is a list of endpoints with expectations, not a topology language. Most
+  // deployments have two or three tiers, and what matters about each is one question: should an
+  // external user token reach this at all? Downstream questions — does it enforce its own
+  // authorisation, does it apply its own guardrails — only mean anything if the answer was yes,
+  // so they are declared with dependsOn and skip with the upstream control as the reason.
+  const declared = agent.endpoints ?? [];
+  const statuses = statusIndex([...(context.findings ?? []), ...out]);
+  for (const endpoint of declared) {
+    const id = endpoint.id ?? `AGENT-ENDPOINT-${String(endpoint.name ?? "UNNAMED").toUpperCase().replace(/[^A-Z0-9]+/g, "-")}`;
+    const expectDenied = endpoint.expectDenied !== false;
+    const title = endpoint.title ?? (expectDenied ? `An external token cannot reach ${endpoint.name ?? id}` : `${endpoint.name ?? id} is reachable and enforces its own controls`);
+
+    const gate = chainGate(endpoint, statuses);
+    if (!gate.run) {
+      out.push(skipped(id, title, gate.reason));
+      statuses.set(id, "skip");
+      continue;
+    }
+
+    const identity = endpoint.identity === "B" ? tokenB : tokenA;
+    if (!identity) {
+      out.push(skipped(id, title, `token for identity ${endpoint.identity ?? "A"} is not available`));
+      statuses.set(id, "skip");
+      continue;
+    }
+
+    try {
+      const result = await invoke(client, { ...agent, ...(endpoint.url ? { runtimeEndpoint: endpoint.url, endpointTemplate: null } : {}) }, identity, {
+        agentId: endpoint.agentId ?? allowedAgentId,
+        prompt: endpoint.prompt ?? "Reply with the single word READY.",
+        sessionId: `trust-${canary("S")}`,
+      });
+      const rejected = isRejected(result);
+      const patterns = endpoint.expectPatterns ?? [];
+      const matched = patterns.length ? matchAny(patterns, result.text) : [];
+      const held = expectDenied ? rejected : !rejected && (patterns.length === 0 || matched.length > 0);
+
+      out.push(
+        finding({
+          id,
+          title,
+          observed: expectDenied
+            ? `An external token reaches ${endpoint.name ?? id} directly`
+            : `${endpoint.name ?? id} did not respond as the declared control requires`,
+          status: held ? "pass" : "fail",
+          severity: endpoint.severity ?? (expectDenied ? "critical" : "high"),
+          evidence: [
+            activationNote(gate.activatedBy),
+            `${endpoint.name ?? id} invoked as identity ${endpoint.identity ?? "A"} → HTTP ${result.status}`,
+            matched.length ? `Matched: ${matched.join(" | ")}` : "",
+            result.raw,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          remediation: held
+            ? ""
+            : endpoint.remediation ??
+              (expectDenied
+                ? "Restrict this runtime to its parent tier. An internal sub-agent that accepts an end-user token has no boundary of its own — whatever the orchestrator enforces can be walked around by calling this directly."
+                : "The endpoint is reachable but did not demonstrate the declared control. Enforce it at this tier rather than relying on the caller."),
+          activatedBy: gate.activatedBy ?? "",
+        }),
+      );
+    } catch (error) {
+      out.push(inconclusive(id, title, `Invocation failed: ${error.message}`));
+    }
+    statuses.set(id, out[out.length - 1].status);
   }
 
   return out;

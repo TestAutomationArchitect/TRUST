@@ -60,7 +60,7 @@
           "type": "object",
           "description": "Per-suite request caps, so one long sweep cannot exhaust the run before later suites execute.",
           "additionalProperties": { "type": "integer", "minimum": 1 },
-          "propertyNames": { "enum": ["auth", "token", "web", "injection", "api", "storage", "agent", "mobile"] }
+          "propertyNames": { "enum": ["auth", "token", "web", "injection", "idp", "api", "storage", "isolation", "agent", "mobile"] }
         },
         "minimumDelayMs": { "type": "integer", "minimum": 50, "description": "Floor between consecutive requests." },
         "requestTimeoutMs": { "type": "integer", "minimum": 1000 },
@@ -128,6 +128,90 @@
         "maxLifetimeSeconds": { "type": "integer", "minimum": 60 },
         "expectedIssuer": { "type": "string" },
         "expectedAudience": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "isolation": {
+      "type": "array",
+      "description": "Declared authorisation boundaries. TRUST supplies the test; the config supplies the boundary. Each spec may carry dependsOn/condition to run only when an upstream control failed.",
+      "items": {
+        "type": "object",
+        "required": ["id", "type"],
+        "properties": {
+          "id": { "type": "string", "description": "Finding ID. It appears in the report and other specs may depend on it." },
+          "type": {
+            "enum": ["record-ownership", "prefix-scoped-storage", "enumeration", "mutation-guard", "identity-injection"],
+            "description": "record-ownership and prefix-scoped-storage need two identities; the rest need one."
+          },
+          "description": { "type": "string" },
+          "title": { "type": "string", "description": "The control assertion, phrased positively. Defaults to description." },
+          "severity": { "enum": ["critical", "high", "medium", "low", "info"], "description": "Impact if this boundary fails. Defaults to high." },
+          "dependsOn": {
+            "description": "Finding ID(s) this test depends on. It runs only when the condition is met, and otherwise skips with the upstream control as the reason.",
+            "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }]
+          },
+          "condition": { "enum": ["failed", "passed", "any"], "description": "Default: failed — run when the upstream boundary broke." },
+          "endpoint": { "type": "string", "format": "uri" },
+          "baseUrl": { "type": "string", "format": "uri", "description": "prefix-scoped-storage only." },
+          "tokenA": { "type": "string", "description": "An auth strategy name." },
+          "tokenB": { "type": "string" },
+          "token": { "type": "string" },
+          "tokenAEnv": { "type": "string" },
+          "tokenBEnv": { "type": "string" },
+          "tokenEnv": { "type": "string" },
+          "authHeader": { "type": "string" },
+          "authScheme": { "type": "string" },
+          "headers": { "type": "object" },
+          "denialPatterns": { "type": "array", "items": { "type": "string" }, "description": "How this API phrases a refusal. Sharpens an otherwise ambiguous verdict." },
+          "queryA": { "type": "string" },
+          "queryB": { "type": "string" },
+          "variablesA": { "type": "object" },
+          "variablesB": { "type": "object" },
+          "pathA": { "type": "string" },
+          "pathB": { "type": "string", "description": "{id} is replaced with the record discovered as identity A." },
+          "methodA": { "type": "string" },
+          "methodB": { "type": "string" },
+          "idField": { "type": "string", "description": "Field naming a record ID in identity A's response. Default: id." },
+          "idVariable": { "type": "string", "description": "Variable the discovered ID is bound to in queryB. Default: id." },
+          "pathPattern": { "type": "string", "description": "Object prefix with {tenant}, e.g. protected/{tenant}/." },
+          "objectKey": { "type": "string", "description": "An object under the other tenant's prefix, so reading is tested as well as listing." },
+          "tenantA": { "type": "string" },
+          "tenantB": { "type": "string" },
+          "tenantAEnv": { "type": "string" },
+          "tenantBEnv": { "type": "string" },
+          "query": { "type": "string" },
+          "variables": { "type": "object" },
+          "path": { "type": "string" },
+          "method": { "type": "string" },
+          "body": {},
+          "identityClaimField": { "type": "string", "description": "enumeration only — the field naming a record's owner. Default: owner." },
+          "identityValue": { "type": "string", "description": "The caller's own identity, if the token subject is not it." },
+          "mutation": { "type": "string", "description": "mutation-guard only. Runs under safety.allowDenialTests, since the control holding means nothing is written." },
+          "injectedField": { "type": "string", "description": "identity-injection only — the client-supplied identity field under test." },
+          "injectedValue": { "type": "string" },
+          "successIndicators": { "type": "array", "items": { "type": "string" }, "description": "Patterns that would appear only if the server acted on the injected identity." },
+          "remediation": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "idp": {
+      "type": "object",
+      "description": "Identity-provider posture, checked unauthenticated over HTTP: discovery document, PKCE, implicit flow, client authentication, the application's own authorisation request, and a Cognito native password grant.",
+      "properties": {
+        "issuer": { "type": "string", "format": "uri" },
+        "discoveryUrl": { "type": "string", "format": "uri", "description": "Defaults to <issuer>/.well-known/openid-configuration." },
+        "loginUrl": { "type": "string", "format": "uri", "description": "The application path that redirects into the IdP. Its Location header is parsed for response_type and the PKCE challenge." },
+        "cognito": {
+          "type": "object",
+          "properties": {
+            "clientId": { "type": "string" },
+            "region": { "type": "string" },
+            "userPoolId": { "type": "string" },
+            "endpoint": { "type": "string", "format": "uri" }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },

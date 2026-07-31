@@ -11,6 +11,25 @@ documents, triaged in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ### Added
 
+- **Declared isolation boundaries.** `config.isolation` states an authorisation boundary and
+  TRUST supplies the test, the verdict and the report entry — `record-ownership`,
+  `prefix-scoped-storage`, `enumeration`, `mutation-guard` and `identity-injection`. The
+  highest-value test category previously required writing a probe module, which put it behind
+  the highest barrier. A record ID is discovered as identity A rather than pinned in config, so a
+  boundary survives a data reseed; a boundary needing two identities skips rather than reporting
+  a pass it did not earn.
+- **Conditional execution.** `dependsOn` and `condition` on an isolation spec or an agent
+  endpoint. A dependent test runs only when the upstream control broke, carries `activatedBy`
+  into the run JSON, and otherwise skips with the upstream control *holding* as the reason —
+  which states something about the system rather than reading as a gap in the assessment. A
+  dependency naming a test that never ran is reported instead of silently satisfying the gate.
+- **Declared agent endpoints.** `agent.endpoints[]` with `expectDenied`, the simple form of a
+  tier map: an internal sub-agent that accepts an end-user token has no boundary of its own.
+- **IdP posture probes** (`config.idp`), unauthenticated and HTTP-only: discovery document, PKCE
+  with S256, implicit flow still advertised, an unauthenticated token endpoint uncompensated by
+  PKCE, the application's own authorisation request, and a Cognito user pool still accepting
+  `USER_PASSWORD_AUTH` — which bypasses federated sign-in and everything attached to it. Checks
+  that need a browser are skips carrying the manual procedure.
 - **Declarative auth strategies.** `auth.strategies` acquires credentials instead of expecting a
   bearer token pasted into `.env` — `cognito-srp` (SRP, so no plaintext-password grant has to be
   enabled on the pool), `cognito-identity-pool`, `okta-ropc`, `client-credentials`, `sigv4` and
@@ -60,6 +79,9 @@ documents, triaged in [docs/ROADMAP.md](docs/ROADMAP.md).
   nothing and its value was read as an environment name. The flag is `--dotenv`; `--env` belongs
   to `trust init`.
 - **The token probe shadowed the imported `section` resolver** with a loop variable.
+- **The agent probe module was missing its `auth` imports**, so any run selecting the agent
+  profile would have thrown `credentialFor is not defined`. Introduced with the auth strategies
+  above and caught by the first test to exercise that module; it never reached a release.
 
 ## [1.0.1] — 2026-07-30
 

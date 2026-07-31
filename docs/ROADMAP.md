@@ -102,7 +102,7 @@ worked around.
 
 ---
 
-## 1.4 — Declarative isolation and chaining
+## 1.4 — Declarative isolation and chaining — **done**
 
 | Item | Source | Decision |
 |---|---|---|
@@ -110,6 +110,15 @@ worked around.
 | **Conditional / chained execution** | §7 | `dependsOn` / `condition`. The agent probes already do this ad hoc (ACL and guardrail probes only run when the hierarchy is breached); generalise it. Feeds the correlated-chain narrative with *executed* chains — which is what would let the report legitimately upgrade that wording. |
 | **Agent topology — simplified** | §4 | Build the simple form their own critique recommends: `endpoints[]` with `expectDenied: true`. Skip the topology DSL until someone has three tiers and asks for it. |
 | **IdP misconfiguration probes** | §5 / §5b | Worth a probe pack. HTTP-observable only — anything needing a browser stays out. |
+
+**As built.** `src/chain.mjs` (the gate), `src/probes/isolation.mjs` (five boundary types),
+`src/probes/idp.mjs` (six checks plus two documented browser-only skips), and
+`agent.endpoints[]`. Chains may cross probe modules: the runner now hands each probe what the
+run has produced so far. Deliberately not implemented: the §3 `auth: "sigv4"` spec field, since
+1.3 already resolves a credential by name and a second way to say it would be a second thing to
+learn; and §5b's S6/S10 (unauthenticated API status, error-body leakage), which
+`API-INVENTORY-EXPOSED` and `API-ERROR-DISCLOSURE` already cover — a second finding saying the
+same thing is worse than one.
 
 ---
 

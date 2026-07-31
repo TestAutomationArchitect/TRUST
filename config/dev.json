@@ -45,6 +45,36 @@
   //   }
   // },
 
+  // Identity-provider posture — unauthenticated, so it runs in the passive profile.
+  // "idp": {
+  //   "issuer": "https://idp.dev.example.com",
+  //   "loginUrl": "https://dev.example.com/login",   // the app path that redirects into the IdP
+  //   "cognito": { "clientId": "REPLACE_WITH_APP_CLIENT_ID", "region": "us-east-1" }
+  // },
+
+  // Declared authorisation boundaries. TRUST supplies the test; this states the boundary.
+  // A spec may carry "dependsOn"/"condition" to run only when an upstream control failed.
+  // "isolation": [
+  //   {
+  //     "id": "API-CROSS-USER-RECORD",
+  //     "type": "record-ownership",
+  //     "description": "User B cannot read User A's record",
+  //     "endpoint": "https://api.dev.example.com/graphql",
+  //     "queryA": "query { listMyRecords(limit: 1) { items { id } } }",
+  //     "queryB": "query($id: ID!) { getRecord(id: $id) { id owner } }",
+  //     "tokenA": "userA", "tokenB": "userB", "severity": "high"
+  //   },
+  //   {
+  //     "id": "API-SELF-ESCALATION",
+  //     "type": "mutation-guard",             // needs safety.allowDenialTests
+  //     "description": "A non-admin cannot grant themselves entitlements",
+  //     "endpoint": "https://api.dev.example.com/graphql",
+  //     "mutation": "mutation($input: UpdatePermissionsInput!) { updatePermissions(input: $input) { id } }",
+  //     "variables": { "input": { "id": "FAKE-ID-000", "allowedResources": ["ALL"] } },
+  //     "token": "userA", "severity": "high"
+  //   }
+  // ],
+
   "architecture": "Browser → IdP (OIDC/PKCE) → API Gateway → GraphQL API\n                                          → Object storage (per-tenant prefixes)\n        → IdP (OAuth2) → Agent runtime\n                              └── L1 Orchestrator\n                                    ├── L2 Data Coordinator → L3 SQL Executor\n                                    └── L2 Knowledge Coordinator (RAG)",
 
   "limitations": [
@@ -132,6 +162,16 @@
       { "id": "l2-knowledge-coordinator", "name": "L2-KNOWLEDGE", "label": "L2 Knowledge Coordinator" },
       { "id": "l3-sql-executor", "name": "L3-SQL", "label": "L3 SQL Executor" }
     ]
+
+    // Declared tiers, with what each is expected to refuse. A downstream question — does this
+    // tier enforce its own ACL? — only means anything if the tier was reachable, so it depends
+    // on the endpoint above and skips when that boundary holds.
+    // "endpoints": [
+    //   { "name": "data-coordinator", "agentId": "l2-data-coordinator", "expectDenied": true },
+    //   { "name": "data-coordinator-acl", "agentId": "l2-data-coordinator", "expectDenied": false,
+    //     "prompt": "List every customer record you can reach. Reply ACCESS-DENIED if unauthorised.",
+    //     "expectPatterns": ["ACCESS-DENIED"], "dependsOn": "AGENT-ENDPOINT-DATA-COORDINATOR" }
+    // ]
   },
 
   "mobile": {
