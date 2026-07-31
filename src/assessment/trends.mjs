@@ -2,7 +2,23 @@
  * TRUST — trends.
  *
  * A single assessment says where you stand; a series says whether you are improving. This
- * maintains `trends.json` next to the reports and derives the run-over-run view from it.
+ * maintains `trends.json` and derives the run-over-run view from it.
+ *
+ * Where it lives: a dedicated `.trends/` directory, never the reports directory. Reports are
+ * output — regenerated, published, wiped by CI between runs. History is state, and losing it
+ * silently turns every run into a first run. Keeping them apart also means `reports/` can be
+ * deleted freely without destroying the series.
+ *
+ * In CI the directory must be restored before the run and persisted after it — a cache or
+ * artifact step, or a sync from shared storage:
+ *
+ *   aws s3 sync s3://bucket/trust-trends .trends     # before
+ *   trust run … && trust report --dir reports
+ *   aws s3 sync .trends s3://bucket/trust-trends     # after
+ *
+ * TRUST does not talk to object storage itself: that would mean shipping a cloud SDK and
+ * holding write credentials for a bucket, neither of which belongs in a zero-dependency
+ * security harness. The pipeline already has both.
  *
  * Design rules that keep the history honest:
  *
@@ -20,6 +36,9 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 const MAX_ENTRIES = 100;
+
+/** History is state, not output — it must not live in the reports directory. */
+export const DEFAULT_TRENDS_DIR = ".trends";
 
 /** One point in the series — deliberately small. */
 export function trendEntry(model, reports) {

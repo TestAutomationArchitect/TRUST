@@ -12,13 +12,13 @@
  * The SECTIONS array below *is* the information hierarchy — worst news first, proof last.
  */
 
-import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
+import { readdir, readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import path from "node:path";
 import { buildModel } from "./model.mjs";
 import { renderHead, renderFoot } from "./shell.mjs";
 import { renderSummary } from "./sections/summary.mjs";
 import { renderTrends } from "./sections/trends.mjs";
-import { trendEntry, loadTrends, appendTrend, deltaAgainstPrevious, series, domainSeries } from "./trends.mjs";
+import { trendEntry, loadTrends, appendTrend, deltaAgainstPrevious, series, domainSeries, DEFAULT_TRENDS_DIR } from "./trends.mjs";
 import { renderScope } from "./sections/scope.mjs";
 import { renderFindings } from "./sections/findings.mjs";
 import { renderProfiles } from "./sections/profiles.mjs";
@@ -71,14 +71,29 @@ export function buildReport(reports, { title = "", trends = null } = {}) {
 }
 
 /** Read every run, build the assessment and write it. Returns the path written. */
-export async function writeCombinedReport({ dir = "reports", out = "", title = "", noTrends = false } = {}) {
+export async function writeCombinedReport({ dir = "reports", out = "", title = "", noTrends = false, trendsDir = DEFAULT_TRENDS_DIR } = {}) {
   const reports = await loadReports(dir);
   if (reports.size === 0) throw new Error(`No TRUST JSON reports found in ${dir}`);
   // The run is appended to its history before rendering, so the delta compares it with the
   // previous run rather than with itself, and a regenerated report does not add a point.
   const model = buildModel(reports, { title });
   const entry = trendEntry(model, reports);
-  const history = noTrends ? await loadTrends(dir) : await appendTrend(dir, entry);
+  // 1.1 wrote history into the reports directory. Adopt it once if it is still there, so an
+  // early adopter does not silently lose their series.
+  const existing = await loadTrends(trendsDir);
+  const legacy = existing.runs.length === 0 ? await loadTrends(dir) : { runs: [] };
+  if (legacy.runs.length) {
+    for (const run of legacy.runs) await appendTrend(trendsDir, run);
+    // Take the old file out of the reports directory once its contents are safely adopted,
+    // so nothing there looks like live history. Renamed rather than deleted: it is the
+    // user's data, and a rename is reversible.
+    try {
+      await rename(path.join(dir, "trends.json"), path.join(dir, "trends.json.migrated"));
+    } catch {
+      /* already gone, or read-only — the history is adopted either way */
+    }
+  }
+  const history = noTrends ? await loadTrends(trendsDir) : await appendTrend(trendsDir, entry);
   const diff = deltaAgainstPrevious(history, entry);
   const trends = diff
     ? {
@@ -93,5 +108,5 @@ export async function writeCombinedReport({ dir = "reports", out = "", title = "
   const outPath = out || path.join(path.resolve(dir), `trust-assessment-${new Date().toISOString().slice(0, 10)}.html`);
   await mkdir(path.dirname(outPath), { recursive: true });
   await writeFile(outPath, html, { mode: 0o600 });
-  return { outPath, profiles: [...reports.keys()], html };
+  return { outPath, profiles: [...reports.keys()], html, trendsDir };
 }

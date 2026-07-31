@@ -37,7 +37,8 @@ const USAGE = `${TOOL.name} ${TOOL.version} — ${TOOL.tagline}
                 [--out reports] [--dry-run] [--quiet]
                 run a profile, write JSON + HTML, exit 2 on a blocking failure
 
-  trust report  [--dir reports] [--out <file.html>] [--title <text>] [--no-trends]
+  trust report  [--dir reports] [--out <file.html>] [--title <text>]
+                [--trends-dir .trends] [--no-trends]
                 merge the latest run per profile into one Trust Assessment
 
   Secrets: .env in the working directory is loaded automatically (real environment
@@ -69,6 +70,7 @@ export function parseArgs(argv) {
     envFile: ".env",
     noEnv: false,
     noTrends: false,
+    trendsDir: process.env.TRUST_TRENDS_DIR || ".trends",
     dryRun: false,
     quiet: false,
     help: false,
@@ -108,6 +110,7 @@ export function parseArgs(argv) {
       case "--env": case "--env-file": opts.envFile = next(); break;
       case "--no-env": opts.noEnv = true; break;
       case "--no-trends": opts.noTrends = true; break;
+      case "--trends-dir": opts.trendsDir = next(); break;
       case "--dry-run": opts.dryRun = true; break;
       case "--quiet": opts.quiet = true; break;
       case "--help": case "-h": opts.help = true; break;
@@ -209,8 +212,9 @@ async function commandRun(opts) {
 }
 
 async function commandReport(opts) {
-  const { outPath, profiles } = await writeCombinedReport({ dir: opts.dir, out: opts.out, title: opts.title, noTrends: opts.noTrends });
+  const { outPath, profiles, trendsDir } = await writeCombinedReport({ dir: opts.dir, out: opts.out, title: opts.title, noTrends: opts.noTrends, trendsDir: opts.trendsDir });
   log(`Merged ${profiles.length} profile(s): ${profiles.join(", ")}`);
+  if (!opts.noTrends) log(paint(90, `  history  ${trendsDir}/trends.json — restore and persist this in CI, or every run looks like the first`));
   console.log(outPath);
   return 0;
 }

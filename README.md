@@ -214,6 +214,42 @@ Each run writes `reports/<name>-<profile>-<timestamp>.json` (machine-readable, t
 
 Adding a test means adding **one entry to `src/catalog.mjs`** — category, domain, root cause, scoring and every report section follow automatically.
 
+
+### Trends and history
+
+`trust report` records each run in `.trends/trends.json` and renders a Trends section once
+there is more than one run: posture, coverage and blockers over time, per-domain movement,
+and which controls were newly introduced, fixed or are still failing.
+
+History is **state, not output**. It lives in `.trends/` rather than `reports/` because
+reports are regenerated, published and wiped between runs — deleting `reports/` must not
+destroy the series. Both directories are gitignored.
+
+In CI the directory has to be restored before the run and persisted after it, or every run
+looks like the first:
+
+```yaml
+- uses: actions/cache@v4        # simplest option
+  with:
+    path: .trends
+    key: trust-trends-${{ github.ref_name }}-${{ github.run_id }}
+    restore-keys: trust-trends-${{ github.ref_name }}-
+```
+
+For a shared store, sync it instead — the shape is the same:
+
+```bash
+aws s3 sync s3://bucket/trust-trends .trends   # before
+trust run --config config/dev.json --profile all && trust report --dir reports
+aws s3 sync .trends s3://bucket/trust-trends   # after
+```
+
+
+TRUST does not talk to object storage itself: that would mean shipping a cloud SDK and
+holding bucket write credentials inside a zero-dependency security harness. Your pipeline
+already has both. Use `--trends-dir <path>` or `TRUST_TRENDS_DIR` to point it elsewhere,
+and `--no-trends` for a one-off report that must not touch history.
+
 ---
 
 ## CI/CD

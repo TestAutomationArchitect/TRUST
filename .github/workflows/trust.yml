@@ -50,9 +50,22 @@ jobs:
         continue-on-error: true
         run: node src/cli.mjs --config config/$ENV.json --profile agent
 
+      # Trend history is state, not output. Without restoring it, every pipeline run looks
+      # like the first and no trend can ever be drawn. A cache is the simplest store; a
+      # shared bucket works identically — `aws s3 sync s3://bucket/trust-trends .trends`
+      # here, and the reverse after the report step.
+      - name: Restore trend history
+        uses: actions/cache@v4
+        with:
+          path: .trends
+          key: trust-trends-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            trust-trends-${{ github.ref_name }}-
+            trust-trends-
+
       - name: Combined Trust Assessment
         if: always()
-        run: node scripts/combined-report.mjs --dir reports
+        run: npx trust report --dir reports
 
       - name: Publish reports
         if: always()
@@ -62,6 +75,7 @@ jobs:
           path: |
             reports/*.html
             reports/*.json
+            .trends/trends.json
           retention-days: 30
 
       - name: Gate on blocking failures

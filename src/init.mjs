@@ -141,7 +141,7 @@ export default defineProbe({
 `;
 
 /** Entries only — the "# TRUST" header is written around them, never compared against. */
-const GITIGNORE_ENTRIES = [".env", "reports/"];
+const GITIGNORE_ENTRIES = [".env", "reports/", ".trends/"];
 
 /**
  * Write the scaffold. Returns { written, skipped } paths.
