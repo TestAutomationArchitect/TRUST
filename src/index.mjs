@@ -46,6 +46,8 @@ export { buildReport as buildCombinedReport, writeCombinedReport, loadReports, b
 
 // ── Scaffolding ─────────────────────────────────────────────────────
 export { scaffold, configTemplate } from "./init.mjs";
+export { runPreflight } from "./preflight.mjs";
+export { section, resolveExtends, resolveBudget, resolvedSections, SECTION_ALIASES } from "./config.mjs";
 
 // ── Built-in probe modules, for embedding one at a time ─────────────
 export { runWebProbes } from "./probes/web.mjs";

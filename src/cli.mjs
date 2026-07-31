@@ -23,11 +23,12 @@ import { runProfile, PROFILES } from "./runner.mjs";
 import { resolveBudget, resolvedSections } from "./config.mjs";
 import { writeCombinedReport } from "./assessment/index.mjs";
 import { scaffold } from "./init.mjs";
+import { runPreflight } from "./preflight.mjs";
 import { listCatalog } from "./catalog.mjs";
 import { TOOL } from "./report.mjs";
 import { loadEnv } from "./env.mjs";
 
-const COMMANDS = ["init", "run", "report", "catalog", "help", "version"];
+const COMMANDS = ["init", "run", "report", "catalog", "preflight", "validate", "help", "version"];
 
 const USAGE = `${TOOL.name} ${TOOL.version} — ${TOOL.tagline}
 
@@ -43,8 +44,15 @@ const USAGE = `${TOOL.name} ${TOOL.version} — ${TOOL.tagline}
                 merge the latest run per profile into one Trust Assessment
 
   Secrets: .env in the working directory is loaded automatically (real environment
-  variables always win). Override with --env <path>, disable with --no-env.
+  variables always win). Override with --dotenv <path>, disable with --no-env.
   Do not use --env-file through an installed binary: Node intercepts that flag.
+
+  trust preflight --config <path> [--profile all] [--offline]
+                check the run will work before it spends the request budget:
+                config, allowlist coverage, tokens, budget, host reachability
+
+  trust validate --config <path>
+                config and allowlist checks only — no network, no tokens needed
 
   trust catalog [--json] [--domain <trust domain>]
                 list every known test with its category, domain and purpose
@@ -71,6 +79,7 @@ export function parseArgs(argv) {
     envFile: ".env",
     noEnv: false,
     noTrends: false,
+    offline: false,
     trendsDir: process.env.TRUST_TRENDS_DIR || ".trends",
     dryRun: false,
     quiet: false,
@@ -105,12 +114,14 @@ export function parseArgs(argv) {
       case "--force": opts.force = true; break;
       case "--no-probe": opts.withProbe = false; break;
       case "--json": opts.json = true; break;
-      // Node claims --env-file for itself when the CLI runs through an npm bin shim, so the
-      // flag never reaches this parser and the user sees "node: .env: not found". --env is
-      // ours alone; --env-file still works for a direct `node src/cli.mjs` invocation.
-      case "--env": case "--env-file": opts.envFile = next(); break;
+      // Node claims --env-file for itself when the CLI runs through an npm bin shim, so that
+      // flag never reaches this parser and the user sees "node: .env: not found". --dotenv is
+      // ours alone. (--env is taken: it is the environment name for `trust init`.) --env-file
+      // still works for a direct `node src/cli.mjs` invocation, where Node has already parsed.
+      case "--dotenv": case "--env-file": opts.envFile = next(); break;
       case "--no-env": opts.noEnv = true; break;
       case "--no-trends": opts.noTrends = true; break;
+      case "--offline": opts.offline = true; break;
       case "--trends-dir": opts.trendsDir = next(); break;
       case "--dry-run": opts.dryRun = true; break;
       case "--quiet": opts.quiet = true; break;
@@ -130,6 +141,9 @@ export function parseArgs(argv) {
       }
     }
     if (opts.command === "init" && !opts.target) throw new ConfigError("--target is required, e.g. --target https://dev.example.com");
+    if ((opts.command === "preflight" || opts.command === "validate") && !opts.config) {
+      throw new ConfigError("--config is required");
+    }
   }
   return opts;
 }
@@ -218,6 +232,21 @@ async function commandRun(opts) {
   return result.exitCode;
 }
 
+async function commandPreflight(opts, { reach }) {
+  const config = await loadConfig(opts.config);
+  const { checks, ok } = await runPreflight(config, { profile: opts.profile, reach });
+
+  log(paint(1, `${TOOL.name} ${TOOL.version}`), `— preflight for ${config.name} (${config.environment})`);
+  const mark = { ok: paint(32, "✓"), warn: paint(33, "!"), fail: paint(31, "✗") };
+  for (const c of checks) log(`  ${mark[c.status]} ${paint(90, c.name.padEnd(22))} ${c.detail}`);
+
+  const fails = checks.filter((c) => c.status === "fail").length;
+  const warns = checks.filter((c) => c.status === "warn").length;
+  log("");
+  log(ok ? paint(32, `  ready — ${warns} advisory item(s)`) : paint(31, `  not ready — ${fails} blocking issue(s), ${warns} advisory`));
+  return ok ? 0 : 1;
+}
+
 async function commandReport(opts) {
   const { outPath, profiles, trendsDir } = await writeCombinedReport({ dir: opts.dir, out: opts.out, title: opts.title, noTrends: opts.noTrends, trendsDir: opts.trendsDir });
   log(`Merged ${profiles.length} profile(s): ${profiles.join(", ")}`);
@@ -276,6 +305,8 @@ async function main() {
     case "init": return commandInit(opts);
     case "run": return commandRun(opts);
     case "report": return commandReport(opts);
+    case "preflight": return commandPreflight(opts, { reach: !opts.offline });
+    case "validate": return commandPreflight(opts, { reach: false });
     case "catalog": return commandCatalog(opts);
     default: throw new ConfigError(`Unknown command "${opts.command}"`);
   }

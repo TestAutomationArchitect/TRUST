@@ -29,6 +29,7 @@ export function configTemplate({ name, target, environment }) {
   const apex = host.split(".").slice(-2).join(".");
 
   return `{
+  "$schema": "https://raw.githubusercontent.com/TestAutomationArchitect/TRUST/main/trust.config.schema.json",
   // TRUST config — targets, safety limits and probe definitions.
   // Rule: this file stores env var NAMES, never secret values. Secrets go in .env.
   "name": ${JSON.stringify(name)},

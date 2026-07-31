@@ -47,7 +47,8 @@
     "LICENSE",
     "NOTICE",
     "ACCEPTABLE_USE.md",
-    ".env.example"
+    ".env.example",
+    "trust.config.schema.json"
   ],
   "scripts": {
     "trust": "node src/cli.mjs",

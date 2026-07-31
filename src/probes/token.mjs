@@ -64,12 +64,14 @@ function collectTokens(config) {
     ["A", mobile?.tokenEnv, "mobile"],
   ];
   const out = [];
-  for (const [identity, envName, section] of sources) {
+  // Named sectionName, not section: the imported resolver is in scope here and shadowing it
+  // would break any later use inside this loop.
+  for (const [identity, envName, sectionName] of sources) {
     if (!envName) continue;
     const value = process.env[envName];
     if (!value) continue;
     if (out.some((t) => t.value === value)) continue;
-    out.push({ identity, envName, section, value });
+    out.push({ identity, envName, section: sectionName, value });
   }
   return out;
 }

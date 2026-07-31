@@ -28,6 +28,8 @@ Nothing is compiled and there is no install script, so `npm ci --ignore-scripts`
 | `trust init --target <url>` | Scaffold `config/<env>.json`, `.env.example`, an example org probe, `.gitignore` entries |
 | `trust run --config <path> --profile <name>` | Run a profile; exit 2 on a blocking failure |
 | `trust report --dir reports` | Merge the latest run per profile into one Trust Assessment |
+| `trust preflight --config <path>` | Check the run will work before it spends the budget: config, allowlist coverage, tokens, budget, reachability |
+| `trust validate --config <path>` | Config and allowlist checks only — no network, no tokens, safe against a production config |
 | `trust catalog [--json]` | List every test with its category and trust domain |
 
 ### As a library
@@ -215,6 +217,54 @@ Each run writes `reports/<name>-<profile>-<timestamp>.json` (machine-readable, t
 Adding a test means adding **one entry to `src/catalog.mjs`** — category, domain, root cause, scoring and every report section follow automatically.
 
 
+
+### Config resolution
+
+Sections resolve through conventional spellings, so an application that already calls its
+API section `graphql` or `appSync`, or its agent section `agentCore` or `bedrock`, does not
+have to duplicate the same endpoint under a second key:
+
+| Canonical | Also accepted as |
+|---|---|
+| `api` | `graphql`, `appSync`, `rest`, `backend` |
+| `agent` | `agentCore`, `bedrock`, `llm`, `aiAgent` |
+| `storage` | `s3`, `objectStore`, `blob`, `bucket` |
+| `mobile` | `app`, `device` |
+
+An explicit canonical key always wins, and the run records which key each section resolved
+from, so resolution is visible rather than guessed.
+
+Environments inherit. A child overrides only what differs, and arrays replace rather than
+merge — so a child can *narrow* an allowlist, never silently widen it:
+
+```jsonc
+{ "extends": "./base.json", "environment": "uat", "safety": { "maxRequests": 250 } }
+```
+
+### Request budgets
+
+`safety.maxRequests` takes a number, or a map keyed by profile. `safety.budgets` optionally
+caps individual suites, which stops a long web sweep exhausting the run before the storage
+and agent probes execute:
+
+```jsonc
+"safety": {
+  "maxRequests": { "passive": 100, "authenticated": 150, "agent": 200, "default": 120 },
+  "budgets": { "web": 50, "injection": 25, "api": 20 }
+}
+```
+
+Spend is recorded per suite in the run JSON, and an exhausted budget names the suite that
+consumed it. A sweep that could not complete reports what it managed — no checks performed
+is a **skip**, a partial sweep is a **warning** that says how far it got, and only a complete
+sweep can pass.
+
+### Testing that a mutation is refused
+
+`safety.allowDenialTests` permits a mutation that is *expected to be denied*, without
+enabling writes generally. Proving a permission mutation is rejected previously required
+turning on every destructive path in the harness. If the target accepts the request, that
+acceptance is the finding.
 ### Trends and history
 
 `trust report` records each run in `.trends/trends.json` and renders a Trends section once

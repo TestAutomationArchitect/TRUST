@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/TestAutomationArchitect/TRUST/main/trust.config.schema.json",
+  "title": "TRUST configuration",
+  "description": "Targets, safety limits and probe definitions for a TRUST run. Stores env var NAMES, never secret values — secrets belong in .env.",
+  "type": "object",
+  "required": ["name", "environment", "targets"],
+  "properties": {
+    "$schema": { "type": "string", "description": "Editor hint; ignored by TRUST." },
+    "extends": {
+      "type": "string",
+      "description": "Path to a config this one inherits from, relative to this file. The child overrides only what it declares; arrays replace rather than merge."
+    },
+    "name": { "type": "string", "description": "Assessment name, used in report filenames and titles." },
+    "environment": {
+      "type": "string",
+      "description": "dev | staging | uat. Values matching prod/production/live are refused unless safety.productionOverride is set."
+    },
+    "architecture": { "type": "string", "description": "Optional free text rendered in the report's Architecture Under Test box." },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Caveats to surface in the report's Limitations callout."
+    },
+    "probes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Org-specific probe modules. Paths resolve against this file's directory first, then the working directory."
+    },
+    "targets": {
+      "type": "object",
+      "required": ["web", "allowedHosts"],
+      "properties": {
+        "web": { "type": "string", "format": "uri", "description": "Primary HTTPS target." },
+        "allowedHosts": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^[^/]+$" },
+          "description": "Bare hostnames the harness may contact. This list is the technical boundary of the engagement — a request to anything else is refused before it leaves the process."
+        }
+      },
+      "additionalProperties": false
+    },
+    "safety": {
+      "type": "object",
+      "description": "Guards that make the harness incapable of harming the target.",
+      "properties": {
+        "maxRequests": {
+          "description": "A number caps the whole run; an object caps per profile, with an optional default.",
+          "oneOf": [
+            { "type": "integer", "minimum": 1, "maximum": 5000 },
+            {
+              "type": "object",
+              "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 5000 },
+              "propertyNames": { "enum": ["passive", "authenticated", "agent", "mobile", "all", "default"] }
+            }
+          ]
+        },
+        "budgets": {
+          "type": "object",
+          "description": "Per-suite request caps, so one long sweep cannot exhaust the run before later suites execute.",
+          "additionalProperties": { "type": "integer", "minimum": 1 },
+          "propertyNames": { "enum": ["token", "web", "injection", "api", "storage", "agent", "mobile"] }
+        },
+        "minimumDelayMs": { "type": "integer", "minimum": 50, "description": "Floor between consecutive requests." },
+        "requestTimeoutMs": { "type": "integer", "minimum": 1000 },
+        "allowWrites": { "type": "boolean", "description": "Permit PUT/PATCH/DELETE and write-marked POSTs." },
+        "allowDenialTests": {
+          "type": "boolean",
+          "description": "Permit a mutation that is expected to be REFUSED, without enabling writes generally. If the target accepts it, that acceptance is the finding."
+        },
+        "allowAgentInvocations": { "type": "boolean", "description": "Permit live LLM/agent calls." },
+        "productionOverride": {
+          "type": "boolean",
+          "description": "Required to target production. Set only with written authorisation for that specific system."
+        }
+      },
+      "additionalProperties": false
+    },
+    "tokens": {
+      "type": "object",
+      "description": "Policy for the offline token-hygiene checks.",
+      "properties": {
+        "maxLifetimeSeconds": { "type": "integer", "minimum": 60 },
+        "expectedIssuer": { "type": "string" },
+        "expectedAudience": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "web": { "type": "object", "description": "Passive web surface options: sensitivePaths, redirectParams, rateLimitBurst, listingPaths, expectedFrameAncestors." },
+    "injection": { "type": "object", "description": "Input-handling probe options: params, fileParams, urlParams, maxParams." },
+
+    "api": { "type": "object", "description": "API and authorisation probes. Also accepted as: graphql, appSync, appsync, rest, backend." },
+    "graphql": { "type": "object", "description": "Alias for api." },
+    "appSync": { "type": "object", "description": "Alias for api." },
+    "appsync": { "type": "object", "description": "Alias for api." },
+    "rest": { "type": "object", "description": "Alias for api." },
+    "backend": { "type": "object", "description": "Alias for api." },
+
+    "storage": { "type": "object", "description": "Object-storage isolation probes. Also accepted as: s3, objectStore, blob, bucket." },
+    "s3": { "type": "object", "description": "Alias for storage." },
+    "objectStore": { "type": "object", "description": "Alias for storage." },
+    "blob": { "type": "object", "description": "Alias for storage." },
+    "bucket": { "type": "object", "description": "Alias for storage." },
+
+    "agent": { "type": "object", "description": "AI agent runtime probes. Also accepted as: agentCore, agentcore, bedrock, llm, aiAgent." },
+    "agentCore": { "type": "object", "description": "Alias for agent." },
+    "agentcore": { "type": "object", "description": "Alias for agent." },
+    "bedrock": { "type": "object", "description": "Alias for agent." },
+    "llm": { "type": "object", "description": "Alias for agent." },
+    "aiAgent": { "type": "object", "description": "Alias for agent." },
+
+    "mobile": { "type": "object", "description": "Mobile platform probes. Also accepted as: app, device." },
+    "app": { "type": "object", "description": "Alias for mobile." },
+    "device": { "type": "object", "description": "Alias for mobile." }
+  },
+  "additionalProperties": true
+}
