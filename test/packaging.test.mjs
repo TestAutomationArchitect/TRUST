@@ -11,6 +11,7 @@ import { defineProbe, resolveProbes, runProfile, loadCustomProbes, PROFILES } fr
 import { scaffold, configTemplate } from "../src/init.mjs";
 import { registerCatalogEntries, registerDomains, registerRootCauses, getTestMeta, domainForId, canonicalId, DEPRECATED_IDS, listCatalog } from "../src/catalog.mjs";
 import { finding, skipped } from "../src/finding.mjs";
+import { TOOL } from "../src/report.mjs";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -232,5 +233,20 @@ test("every profile names at least one built-in module", () => {
   for (const [name, profile] of Object.entries(PROFILES)) {
     assert.ok(profile.modules.length > 0, `${name} has no modules`);
     assert.ok(profile.description.length > 10);
+  }
+});
+
+test("the version the reports state is the version that was published", () => {
+  // TOOL.version is a constant rather than a runtime read of the manifest, so this is what
+  // stops a report claiming a version that was never released.
+  assert.equal(TOOL.version, pkg.version);
+});
+
+test("every file the package promises to ship exists", async () => {
+  const { stat } = await import("node:fs/promises");
+  for (const entry of pkg.files) {
+    // A stale entry is silent: npm omits what it cannot find, and the gap only shows up in a
+    // partner's install.
+    await stat(new URL(`../${entry}`, import.meta.url));
   }
 });

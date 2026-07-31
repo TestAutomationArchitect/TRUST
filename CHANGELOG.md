@@ -1,13 +1,27 @@
 # Changelog
 
-All notable changes are documented here. This project follows the semver contract in
-[docs/VERSIONING.md](docs/VERSIONING.md) — note that finding IDs and severities are part
-of the public API, and any change to a verdict is called out under **Verdict changes**.
+All notable changes are documented here. This project follows the semver contract in the
+[README](README.md#versioning) — note that finding IDs and severities are part of the public
+API, and any change to a verdict is called out under **Verdict changes**.
 
-## [Unreleased]
+## [1.5.0] — 2026-07-30
 
-Everything below is on `main` and not yet published. It comes from two partner field-test
-documents, triaged in [docs/ROADMAP.md](docs/ROADMAP.md).
+The adoption release: credentials TRUST acquires rather than expects, authorisation boundaries
+a team declares rather than codes, and findings delivered where CI already looks. Everything
+here comes from partner field testing of 1.0.
+
+A minor version, not a major: every addition is additive, no finding ID moved, and no existing
+verdict changed. A run configured for 1.0.1 produces the same results on 1.5.0.
+
+### Upgrading
+
+Nothing is required. Three things are worth adopting, in this order:
+
+1. `trust preflight --config <path>` before your next pipeline run — it catches an expired
+   token, an unlisted host or a too-small budget in seconds, without spending the run.
+2. `trust baseline --dir reports` if you have inherited findings, so CI can gate on
+   regressions while the backlog is worked through.
+3. `auth.strategies` if identities are currently pasted into `.env` by hand.
 
 ### Added
 

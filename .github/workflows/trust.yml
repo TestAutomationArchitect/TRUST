@@ -9,12 +9,18 @@ on:
   schedule:
     - cron: "0 3 * * 1"
 
+permissions:
+  contents: read
+  # Needed only by the SARIF upload step, so findings appear in the Security tab.
+  security-events: write
+
 jobs:
   verify:
     runs-on: ubuntu-latest
     env:
       ENV: ${{ github.event.inputs.environment || 'dev' }}
-      # Tokens are injected as secrets; config only ever names the variables.
+      # Tokens are injected as secrets; config only ever names the variables. Where a config
+      # declares auth.strategies instead, these are the passwords those strategies read.
       AUTH_TOKEN_A: ${{ secrets.AUTH_TOKEN_A }}
       AUTH_TOKEN_B: ${{ secrets.AUTH_TOKEN_B }}
       STORAGE_TOKEN_A: ${{ secrets.STORAGE_TOKEN_A }}
@@ -30,25 +36,29 @@ jobs:
       - name: Unit tests
         run: npm test
 
-      - name: Validate config
-        run: node src/cli.mjs --config config/$ENV.json --profile all --dry-run
+      # Preflight before probing. Everything it catches — an unlisted host, an expired token,
+      # two identities that are the same principal, a cap too small for the profile — would
+      # otherwise surface as a wall of skips half an hour in, where it reads as a finding
+      # about the target rather than a mistake in the setup.
+      - name: Preflight
+        run: node src/cli.mjs preflight --config config/$ENV.json --profile all
 
       # Each profile records its own exit code so a later profile still runs,
       # and the gate is applied once at the end.
       - name: Passive profile
         id: passive
         continue-on-error: true
-        run: node src/cli.mjs --config config/$ENV.json --profile passive
+        run: node src/cli.mjs run --config config/$ENV.json --profile passive
 
       - name: Authenticated profile
         id: authenticated
         continue-on-error: true
-        run: node src/cli.mjs --config config/$ENV.json --profile authenticated
+        run: node src/cli.mjs run --config config/$ENV.json --profile authenticated
 
       - name: Agent profile
         id: agent
         continue-on-error: true
-        run: node src/cli.mjs --config config/$ENV.json --profile agent
+        run: node src/cli.mjs run --config config/$ENV.json --profile agent
 
       # Trend history is state, not output. Without restoring it, every pipeline run looks
       # like the first and no trend can ever be drawn. A cache is the simplest store; a
@@ -63,9 +73,19 @@ jobs:
             trust-trends-${{ github.ref_name }}-
             trust-trends-
 
+      # One assessment across every profile, plus the two formats the rest of the pipeline
+      # already knows how to read.
       - name: Combined Trust Assessment
         if: always()
-        run: npx trust report --dir reports
+        run: node src/cli.mjs report --dir reports --sarif trust.sarif --junit trust-junit.xml
+
+      - name: Upload SARIF to the Security tab
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trust.sarif
+          category: trust
 
       - name: Publish reports
         if: always()
@@ -75,12 +95,22 @@ jobs:
           path: |
             reports/*.html
             reports/*.json
+            trust.sarif
+            trust-junit.xml
             .trends/trends.json
           retention-days: 30
 
+      # Two gates, and only one of them applies. With a committed baseline the build fails only
+      # on a finding that is new or has worsened, which is what makes the gate survivable for a
+      # team working through findings it inherited. Without one, any critical, high or medium
+      # failure fails the build.
       - name: Gate on blocking failures
         if: always()
         run: |
+          if [ -f .trust-baseline.json ]; then
+            node src/cli.mjs report --dir reports --no-trends --baseline .trust-baseline.json
+            exit $?
+          fi
           for outcome in "${{ steps.passive.outcome }}" "${{ steps.authenticated.outcome }}" "${{ steps.agent.outcome }}"; do
             if [ "$outcome" = "failure" ]; then
               echo "::error::TRUST found critical, high or medium severity failures — see the Trust Assessment artifact."

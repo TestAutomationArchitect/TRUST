@@ -5,9 +5,10 @@
 TRUST turns a target into a **Trust Assessment**: a posture score, a deployment-readiness verdict, architectural root causes, and per-finding evidence with remediation.
 
 ```bash
-npx trust-verify init --target https://dev.example.com   # scaffold config + .env template
-trust run    --config config/dev.json --profile passive     # probe, write JSON + HTML
-trust report --dir reports                                  # merge into one Trust Assessment
+npx trust-verify init --target https://dev.example.com      # scaffold config + .env template
+trust preflight --config config/dev.json                    # will this run work? (seconds, no probing)
+trust run       --config config/dev.json --profile passive  # probe, write JSON + HTML
+trust report    --dir reports                               # merge into one Trust Assessment
 ```
 
 ## Install
@@ -17,9 +18,13 @@ npm i -D trust-verify        # in the repo whose target you are testing
 npx trust-verify init --target https://dev.example.com
 ```
 
-Nothing is compiled and there is no install script, so `npm ci --ignore-scripts` works. Releases from 1.0.1 onward are published from CI via [npm trusted publishing](https://docs.npmjs.com/trusted-publishers) — no long-lived token exists anywhere — and carry a provenance attestation you can verify with `npm audit signatures`. 1.0.0 was published manually to create the package, because a trusted publisher cannot be attached to a package that does not yet exist; it has no attestation. Airgapped partners can install the checksummed tarball attached to each GitHub release: `npm i ./trust-verify-1.0.1.tgz`.
-
-> **Before your first publish**, confirm the npm scope exists and you can publish to it (`npm org ls testautomationarchitect`). `scripts/preflight.mjs` refuses to publish a package that still carries a placeholder name, has gained a dependency, or would ship secrets.
+Nothing is compiled and there is no install script, so `npm ci --ignore-scripts` works. Releases
+after 1.0.0 are published from CI via [npm trusted publishing](https://docs.npmjs.com/trusted-publishers)
+— no long-lived token exists anywhere — and carry a provenance attestation you can verify with
+`npm audit signatures`. 1.0.0 was published manually to create the package, because a trusted
+publisher cannot be attached to a package that does not yet exist; it has no attestation.
+Airgapped partners can install the checksummed tarball attached to each release:
+`npm i ./trust-verify-1.5.0.tgz`.
 
 ### Commands
 
@@ -91,7 +96,9 @@ export default defineProbe({
 | **Evidence-backed findings** | Every finding carries purpose, evidence and remediation. No finding without proof. |
 | **Incapable of harm** | All traffic passes through `SafeHttpClient`: HTTPS-only, host allowlist, hard request cap, delay floor, timeouts, manual redirects, production block, write guard, agent-invocation guard. |
 | **Redaction by default** | JWTs, bearer tokens, cloud keys, connection strings, signed-URL signatures, PEM blocks and `KEY=value` secrets are stripped before evidence reaches disk. |
-| **A skip is never a pass** | Missing credentials and unmet preconditions produce SKIP, are excluded from scoring, and are listed under Retest Requirements. |
+| **A skip is never a pass** | Missing credentials and unmet preconditions produce SKIP, are excluded from scoring, and are listed under Retest Requirements. A sweep that could not finish reports how far it got: nothing performed is a skip, a partial sweep is a warning, and only a complete sweep can pass. |
+| **Credentials are acquired, never printed** | `auth.strategies` signs in through the same guarded client, so an IdP host must be allowlisted like any other. Config stores env var *names*; the console, the run JSON and the exports carry names, kinds and expiry — never a token. |
+| **Nothing routes around a guard** | A SigV4 signature is computed inside `request()`, after every check has passed. A mutation expected to be refused runs under its own switch (`allowDenialTests`) rather than by enabling writes. |
 
 ---
 
@@ -104,7 +111,7 @@ trust/
 │   └── minimal.json          passive-only, no credentials required
 ├── src/
 │   ├── index.mjs             public API — everything partners may import
-│   ├── cli.mjs               init / run / report / catalog subcommands
+│   ├── cli.mjs               init / run / report / preflight / tokens / baseline / catalog
 │   ├── runner.mjs            runProfile(), defineProbe(), custom probe loading
 │   ├── init.mjs              scaffolding written by `trust init`
 │   ├── env.mjs               .env loading for the CLI (never for the library)
@@ -189,44 +196,6 @@ node src/cli.mjs --config config/dev.json --profile all --dry-run
 ```
 
 ---
-
-## Probe catalog
-
-**Web / infrastructure** (passive) — HSTS, CSP (with weak-directive detection), X-Content-Type-Options, Referrer-Policy, Permissions-Policy, clickjacking, frame-ancestors allowlist, cookie flags, token-in-web-storage, source maps, sensitive-file exposure (with SPA-fallback discrimination), CORS reflection, open redirect, rate limiting, TLS version, certificate validity.
-
-**API / authorisation** (authenticated) — cross-user record read, owner-scoped lists, permission-mutation RBAC, client-supplied identity, GraphQL introspection, error disclosure, native password-grant availability, plus arbitrary `extraChecks` per endpoint.
-
-**Storage** — anonymous listing/read, cross-tenant prefix access, cross-user object access, from both directions when two identities are supplied.
-
-**AI agent** — unauthorised agent target, identity spoofing, direct and indirect prompt injection, dangerous URI output, cross-session inheritance, memory isolation, sub-agent hierarchy bypass, and — *conditionally, only when the hierarchy is breached* — sub-agent ACL and guardrail bypass. Then system-prompt, credential and tool-schema disclosure.
-
-**Mobile** — deep-link destination validation, app-site association files, device-attestation enforcement. Certificate pinning and sandbox storage SKIP with the exact manual procedure, because a network harness cannot verify them.
-
-Injection and leak tests use the **canary technique**: plant a unique UUID, assert on its absence. No interpretation, no false confidence.
-
----
-
-## Reports
-
-Each run writes `reports/<name>-<profile>-<timestamp>.json` (machine-readable, the artefact CI keeps) and a matching standalone HTML view.
-
-`scripts/combined-report.mjs` merges the latest run per profile into one Trust Assessment:
-
-```
-1. Posture score (0–100)      severity-weighted: critical 10, high 5, medium 3, low 1, info 0.5
-2. Deployment readiness       Ready / Caution / Not Ready
-3. Domain cards               worst-first, so a strong composite cannot hide a weak domain
-4. Impact summary             blockers / high priority / config improvements / controls validated
-5. Executive interpretation   what failed, in prose, grouped by category
-6. Root causes                architectural observations, not a fix list
-7. Verified trust controls    grouped and summarised — families collapse into one statement
-8. Detailed findings          purpose, evidence, remediation; failures expanded by default
-9. Remediation plan + retest + searchable inventory + methodology
-```
-
-Adding a test means adding **one entry to `src/catalog.mjs`** — category, domain, root cause, scoring and every report section follow automatically.
-
-
 
 ### Config resolution
 
@@ -328,6 +297,58 @@ trust tokens --config config/dev.json --out .trust-credentials.env   # 0600, tok
 trust run --dotenv .trust-credentials.env --config config/dev.json --profile authenticated
 ```
 
+## Probe catalog
+
+**Web / infrastructure** (passive) — HSTS, CSP (with weak-directive detection), X-Content-Type-Options, Referrer-Policy, Permissions-Policy, clickjacking, frame-ancestors allowlist, cookie flags, token-in-web-storage, source maps, sensitive-file exposure (with SPA-fallback discrimination), CORS reflection, open redirect, rate limiting, TLS version, certificate validity.
+
+**API / authorisation** (authenticated) — cross-user record read, owner-scoped lists, permission-mutation RBAC, client-supplied identity, GraphQL introspection, error disclosure, native password-grant availability, plus arbitrary `extraChecks` per endpoint.
+
+**Storage** — anonymous listing/read, cross-tenant prefix access, cross-user object access, from both directions when two identities are supplied.
+
+**AI agent** — unauthorised agent target, identity spoofing, direct and indirect prompt injection, dangerous URI output, cross-session inheritance, memory isolation, sub-agent hierarchy bypass, and — *conditionally, only when the hierarchy is breached* — sub-agent ACL and guardrail bypass. Then system-prompt, credential and tool-schema disclosure.
+
+**Mobile** — deep-link destination validation, app-site association files, device-attestation enforcement. Certificate pinning and sandbox storage SKIP with the exact manual procedure, because a network harness cannot verify them.
+
+**Identity provider** (passive) — discovery document, PKCE with S256, implicit flow still advertised, an unauthenticated token endpoint uncompensated by PKCE, what the application's own authorisation request asks for, and a Cognito user pool still accepting `USER_PASSWORD_AUTH`. Session fixation and the post-callback verifier cookie SKIP with the manual procedure, for the same reason.
+
+**Declared boundaries** — whatever `config.isolation` states: record ownership, storage prefixes, enumeration, privileged mutations and client-supplied identity. These are the tests a team writes about its own data model, without writing code.
+
+Injection and leak tests use the **canary technique**: plant a unique UUID, assert on its absence. No interpretation, no false confidence.
+
+---
+
+## Reports
+
+Each run writes `reports/<name>-<profile>-<timestamp>.json` (machine-readable, the artefact CI keeps) and a matching standalone HTML view.
+
+`trust report` merges the latest run per profile into one Trust Assessment:
+
+```
+1. Posture score (0–100)      severity-weighted: critical 10, high 5, medium 3, low 1, info 0.5
+2. Deployment readiness       Ready / Caution / Not Ready
+3. Domain cards               worst-first, so a strong composite cannot hide a weak domain
+4. Impact summary             blockers / high priority / config improvements / controls validated
+5. Executive interpretation   what failed, in prose, grouped by category
+6. Root causes                architectural observations, not a fix list
+7. Verified trust controls    grouped and summarised — families collapse into one statement
+8. Detailed findings          purpose, evidence, remediation; failures expanded by default
+9. Remediation plan + retest + searchable inventory + methodology
+```
+
+Adding a test means adding **one entry to `src/catalog.mjs`** — category, domain, root cause, scoring and every report section follow automatically.
+
+The same JSON is the integration surface: `--sarif` and `--junit` translate it for a security
+dashboard and a CI test view, and `--baseline` compares it with what a team has already
+accepted. See [CI/CD](#cicd).
+
+
+
+## Declaring what to test
+
+Four things are stated in config rather than written as code. Each is a config section,
+each degrades to a precise skip when its inputs are missing, and each is covered in full by
+[trust.config.schema.json](trust.config.schema.json) — which your editor will read.
+
 ### Declared isolation boundaries
 
 Most real security bugs are authorisation failures, and the test never changes shape: act as A,
@@ -413,10 +434,32 @@ everything attached to it, including MFA. Checks that genuinely need a browser (
 across a real login, the code-verifier cookie after callback) are reported as skips carrying the
 manual procedure rather than guessed at.
 
-### CI integration
+## CI/CD
 
-```bash
-trust run --config config/dev.json --profile authenticated   --baseline .trust-baseline.json --sarif trust.sarif --junit trust-junit.xml
+Exit codes: `0` clear (or low/info only) · `1` config or safety error, nothing tested · `2` critical/high/medium failure — fail the pipeline.
+
+### A pipeline, end to end
+
+```yaml
+# Cheap checks first: preflight fails in seconds on an expired token, an unlisted host or a
+# budget too small for the profile — rather than after half an hour of probing that produces
+# a wall of skips reading like findings about the target.
+- run: npx trust preflight --config config/$ENV.json --profile all
+
+# Acquire once, so the pipeline does not sign in per step and trip the IdP's rate limit.
+- run: npx trust tokens --config config/$ENV.json --out .trust-credentials.env
+
+- run: npx trust run --dotenv .trust-credentials.env --config config/$ENV.json --profile passive
+- run: npx trust run --dotenv .trust-credentials.env --config config/$ENV.json --profile authenticated
+
+# One assessment across every profile, plus the formats the rest of the pipeline reads.
+- run: npx trust report --dir reports --sarif trust.sarif --junit trust-junit.xml
+         --baseline .trust-baseline.json
+
+- uses: github/codeql-action/upload-sarif@v3      # needs security-events: write
+  with: { sarif_file: trust.sarif }
+- uses: actions/upload-artifact@v4
+  with: { name: trust-assessment, path: reports/ }
 ```
 
 | Output | Where it lands |
@@ -459,6 +502,8 @@ Fixed findings are reported as loudly as new ones, a warning that becomes a fail
 is reported as absent rather than fixed — a gate that congratulates a team for skipping a
 profile is worse than no gate. Commit the baseline file; it is a policy record, not a cache.
 
+A ready-made GitHub Actions workflow is in [.github/workflows/trust.yml](.github/workflows/trust.yml).
+
 ### Trends and history
 
 `trust report` records each run in `.trends/trends.json` and renders a Trends section once
@@ -496,24 +541,24 @@ and `--no-trends` for a one-off report that must not touch history.
 
 ---
 
-## CI/CD
-
-Exit codes: `0` clear (or low/info only) · `1` config or safety error, nothing tested · `2` critical/high/medium failure — fail the pipeline.
-
-```yaml
-- run: node --env-file=.env src/cli.mjs --config config/$ENV.json --profile passive
-- run: node --env-file=.env src/cli.mjs --config config/$ENV.json --profile authenticated
-- run: node scripts/combined-report.mjs --dir reports
-  # publish reports/*.html and reports/*.json as artifacts
-```
-
-A ready-made GitHub Actions workflow is in [.github/workflows/trust.yml](.github/workflows/trust.yml).
-
----
-
 ## Versioning
 
-Finding IDs and severities are a **public API** — partners gate CI on them and chart them. An ID is never edited in place; it is aliased in `DEPRECATED_IDS` and the rename ships in a major. Full contract, including what counts as a breaking verdict change, in [docs/VERSIONING.md](docs/VERSIONING.md).
+TRUST is consumed by other organisations' pipelines, and two things make its compatibility
+surface wider than an ordinary library. **Finding IDs and severities are an API**: partners gate
+CI on them (`exit 2`), chart them, and file tickets against them, so renaming an ID or promoting
+a finding from medium to high silently changes someone's build outcome. **The run JSON is an
+API**: dashboards parse `findings[].status`, `.severity`, `.domain` and the `summary` block. The
+semver contract therefore covers the catalogue as well as the code.
+
+| | What it covers |
+|---|---|
+| **Major** | Removing or renaming a finding ID (the old ID must also be added to `DEPRECATED_IDS`); raising a severity; changing verdict logic so a previously passing control now fails; removing or renaming a run-JSON field or a profile; removing a package export; raising the minimum Node version; changing scoring weights or readiness thresholds |
+| **Minor** | New probes, catalogue entries, profiles, config keys with safe defaults, exports, report sections and extension points. A new test may of course fail — that is the point — but no existing verdict changes. Lowering a severity, or a verdict becoming *less* strict |
+| **Patch** | Fixing a probe that produced a wrong verdict, documented in the changelog with the before and after; redaction improvements; evidence wording, report layout and styling; performance, error messages, docs |
+
+An ID is never edited in place. It is aliased in `DEPRECATED_IDS`, both IDs resolve to the same
+metadata, and the rename ships in a major — so a partner's dashboard keeps working across the
+upgrade rather than silently losing a series.
 
 ## Extending
 
@@ -527,7 +572,9 @@ Rules for probes: check prerequisites and SKIP (never crash) on missing config o
 npm test        # node --test "test/*.test.mjs"
 ```
 
-40 tests cover the safety guards (HTTPS-only, allowlist, cap, throttle, write/agent guards, production block), the finding factory and every redaction rule, report construction, HTML escaping, scoring, domain ordering and catalog integrity.
+181 tests cover the safety guards (HTTPS-only, allowlist, per-run and per-suite caps, throttle, write/agent/denial guards, production block), the auth strategies (SigV4 against AWS's published test vector, the SRP group by its own defining property), config resolution and inheritance, declared isolation boundaries and conditional execution, the finding factory and every redaction rule, SARIF and JUnit output, baseline diffing, report construction, HTML escaping, scoring, domain ordering and catalogue integrity.
+
+They are not shipped in the package — a partner installing TRUST should not pay for the test suite — so run them from a clone.
 
 ---
 

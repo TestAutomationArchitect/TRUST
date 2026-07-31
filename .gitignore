@@ -12,5 +12,11 @@ reports/
 # Editor-local
 .vscode/
 
+# Working documents: partner field-test write-ups, the roadmap they were triaged into, and
+# the review backlog. They quote partner systems and internal review threads, so they stay
+# local — the public record of what shipped and why is CHANGELOG.md.
+docs/
+.trust-credentials.env
+
 # Registry credentials
 .npmrc

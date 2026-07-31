@@ -157,7 +157,7 @@ const PREFIX_RULES = [
 /**
  * Renamed test IDs. A finding ID is a public API — partner dashboards and CI gates
  * key on it — so an ID is never simply changed: the old one is aliased here and the
- * rename ships in a major version. See docs/VERSIONING.md.
+ * rename ships in a major version. The full contract is in the README.
  *
  *   "OLD-ID": "NEW-ID"
  */
