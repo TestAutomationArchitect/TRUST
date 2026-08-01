@@ -74,6 +74,7 @@ export { buildBaseline, loadBaseline, writeBaseline, diffAgainstBaseline, exitCo
 // ── Built-in probe modules, for embedding one at a time ─────────────
 export { runWebProbes } from "./probes/web.mjs";
 export { runIdpProbes } from "./probes/idp.mjs";
+export { runJwtProbes } from "./probes/jwt.mjs";
 export { runIsolationProbes, ISOLATION_TYPES } from "./probes/isolation.mjs";
 export { runApiProbes } from "./probes/api.mjs";
 export { runStorageProbes } from "./probes/storage.mjs";

@@ -91,6 +91,7 @@ export async function runInjectionProbes(config, client) {
     return [inconclusive("INJECT-CONFIG", "Input-handling probe suite", `Baseline request failed: ${error.message}`)];
   }
   const params = config.injection?.params ?? discoverParams(html, baseUrl.href, config.injection?.maxParams ?? 5);
+  const bodyEvidence = [];
   const budget = () => client.remainingRequests;
 
   // ── 1. Reflected XSS ─────────────────────────────────────────────
@@ -398,6 +399,98 @@ export async function runInjectionProbes(config, client) {
           : "Verify manually with a collaborator/listener endpoint, or configure config.injection.urlParams so the right parameters are covered.",
       }),
     );
+  }
+
+  // ── 8. The same payloads, in a JSON body ─────────────────────────
+  //
+  // Everything above travels in a query string, and modern APIs are POST-first: a target can
+  // encode its query parameters correctly and still interpolate a JSON field straight into a
+  // query or a template. The coverage claim of this suite was narrower than a reader would
+  // assume, and this closes that.
+  //
+  // A body probe needs to know what to send, so it is config-driven rather than discovered —
+  // guessing a schema would produce 400s and call them clean.
+  const bodySpec = config.injection?.body;
+  if (!bodySpec?.endpoint || !bodySpec?.fields?.length) {
+    out.push(
+      skipped(
+        "INJECT-BODY",
+        "JSON body fields are validated and encoded",
+        "config.injection.body.endpoint and .fields are not defined — a body probe cannot guess a request schema, and a guessed one would return 400 and read as clean",
+      ),
+    );
+  } else {
+    const bodyMark = canary("BODY");
+    const bodyPayloads = [
+      { name: "html", value: `<svg/onload=1>${bodyMark}`, signature: /<svg\/onload/i, kind: "reflection" },
+      { name: "sql-quote", value: `'${bodyMark}`, signature: null, kind: "sql" },
+      { name: "template", value: "${7*191}", signature: /1337/, kind: "template" },
+    ];
+    const bodyHits = [];
+    let bodyPerformed = 0;
+
+    for (const field of bodySpec.fields.slice(0, config.injection?.maxParams ?? 5)) {
+      for (const payload of bodyPayloads) {
+        if (budget() < 3) break;
+        bodyPerformed += 1;
+        const body = JSON.parse(JSON.stringify(bodySpec.template ?? {}));
+        // Dotted paths so a nested field can be targeted: "input.title".
+        const path = field.split(".");
+        let node = body;
+        for (const key of path.slice(0, -1)) node = node[key] ??= {};
+        node[path.at(-1)] = payload.value;
+
+        try {
+          const response = await client.request(bodySpec.endpoint, {
+            method: bodySpec.method ?? "POST",
+            headers: { "content-type": "application/json", ...(bodySpec.headers ?? {}) },
+            body: JSON.stringify(bodySpec.query ? { query: bodySpec.query, variables: body } : body),
+            // A body probe against a mutating endpoint is a write. Marked as expected-to-be-
+            // refused so it runs under allowDenialTests rather than requiring blanket writes.
+            write: bodySpec.write === true,
+            denialTest: bodySpec.write === true,
+          });
+          const text = (await response.text()).slice(0, 600);
+          if (payload.kind === "sql") {
+            const hit = SQL_ERRORS.find(([pattern]) => pattern.test(text));
+            if (hit) bodyHits.push({ field, payload: payload.name, why: hit[1], status: response.status, snippet: text.slice(0, 200) });
+          } else if (payload.signature?.test(text)) {
+            bodyHits.push({
+              field,
+              payload: payload.name,
+              why: payload.kind === "template" ? "the expression was evaluated server-side" : "the payload came back unencoded",
+              status: response.status,
+              snippet: text.slice(0, 200),
+            });
+          }
+        } catch (error) {
+          bodyEvidence.push(`${field}/${payload.name}: ${error.message}`);
+        }
+      }
+    }
+
+    const verdict = sweepVerdict({ hits: bodyHits.length, performed: bodyPerformed, planned: bodySpec.fields.length * bodyPayloads.length });
+    if (verdict === "not-run") {
+      out.push(skipped("INJECT-BODY", "JSON body fields are validated and encoded", "no body request completed — the request budget was exhausted before this probe ran"));
+    } else {
+      out.push(
+        finding({
+          id: "INJECT-BODY",
+          observed: "A JSON body field is interpolated without validation or encoding",
+          title: "JSON body fields are validated and encoded",
+          status: bodyHits.length ? "fail" : verdict === "partial" ? "warn" : "pass",
+          warnKind: bodyHits.length ? "advisory" : "partial",
+          severity: "high",
+          evidence: bodyHits.length
+            ? bodyHits.map((h) => [`${h.field} (${h.payload}): ${h.why} → HTTP ${h.status}`, h.snippet].join("\n")).join("\n\n")
+            : `Tested ${bodyPerformed} field/payload combination(s) against ${bodySpec.endpoint}; nothing was reflected, evaluated or surfaced as a database error.` +
+              (verdict === "partial" ? " The sweep stopped early on the request budget, so this is not a complete answer." : ""),
+          remediation: bodyHits.length
+            ? "Validate and encode body fields on the same path as query parameters. A field that reaches a query, a template or an HTML response unescaped is the same defect wherever it arrived from."
+            : "",
+        }),
+      );
+    }
   }
 
   return out;

@@ -1,6 +1,6 @@
 {
   "name": "trust-verify",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "TRUST — Trust Reporting & Unified Security Testing. Zero-dependency security verification for web, API, storage, AI-agent and mobile targets.",
   "keywords": [
     "security",

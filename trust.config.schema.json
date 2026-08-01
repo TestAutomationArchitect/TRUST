@@ -216,7 +216,32 @@
       "additionalProperties": false
     },
     "web": { "type": "object", "description": "Passive web surface options: sensitivePaths, redirectParams, rateLimitBurst, listingPaths, expectedFrameAncestors." },
-    "injection": { "type": "object", "description": "Input-handling probe options: params, fileParams, urlParams, maxParams." },
+    "injection": {
+      "type": "object",
+      "description": "Input-handling probe options. `body` extends the same payloads to a JSON request body, which is where a POST-first API actually takes input.",
+      "properties": {
+        "params": { "type": "array", "items": { "type": "string" } },
+        "fileParams": { "type": "array", "items": { "type": "string" } },
+        "urlParams": { "type": "array", "items": { "type": "string" } },
+        "maxParams": { "type": "integer", "minimum": 1 },
+        "body": {
+          "type": "object",
+          "description": "A request whose JSON fields are tested. Config-driven rather than discovered: a guessed schema returns 400 and reads as clean.",
+          "required": ["endpoint", "fields"],
+          "properties": {
+            "endpoint": { "type": "string", "format": "uri" },
+            "method": { "type": "string" },
+            "fields": { "type": "array", "items": { "type": "string" }, "description": "Dotted paths into the template, e.g. \"input.title\"." },
+            "template": { "type": "object", "description": "A valid request body; each field is replaced in turn." },
+            "query": { "type": "string", "description": "GraphQL document — the template is then sent as variables." },
+            "headers": { "type": "object" },
+            "write": { "type": "boolean", "description": "The endpoint mutates state; the probe then runs under safety.allowDenialTests." }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": true
+    },
 
     "api": { "type": "object", "description": "API and authorisation probes. Also accepted as: graphql, appSync, appsync, rest, backend." },
     "graphql": { "type": "object", "description": "Alias for api." },

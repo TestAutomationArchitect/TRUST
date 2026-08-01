@@ -153,10 +153,31 @@ export function validateConfig(config) {
   }
   const webHost = safeHostname(targets.web);
   if (!webHost) throw new ConfigError(`config.targets.web is not a valid URL: ${targets.web}`);
+  if (/^http:\/\//i.test(targets.web) && !["localhost", "127.0.0.1", "::1"].includes(webHost) && !webHost.endsWith(".localhost")) {
+    throw new ConfigError(`config.targets.web must be HTTPS (plain HTTP is permitted only on loopback), got ${targets.web}`);
+  }
+  if (/^http:\/\//i.test(targets.web)) {
+    advisories.push("targets.web is plain HTTP on loopback — transport findings do not apply to a local run.");
+  }
   if (!targets.allowedHosts.includes(webHost)) {
     throw new ConfigError(`config.targets.web host "${webHost}" is not in targets.allowedHosts`);
   }
   return advisories;
+}
+
+/**
+ * Plain HTTP is refused everywhere except the loopback interface.
+ *
+ * The rule exists so credentials and payloads never cross a network in clear text. On loopback
+ * there is no network to cross, and the alternative — a developer cannot test until the service
+ * is deployed — pushes verification to the point where it is most expensive. The exception is
+ * deliberately narrow: the literal loopback names only, never a hostname that merely resolves
+ * there, because "it resolved to 127.0.0.1 when I checked" is a DNS answer that can change
+ * between the check and the request.
+ */
+export function isLoopback(url) {
+  const host = url.hostname.toLowerCase();
+  return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1" || host.endsWith(".localhost");
 }
 
 function safeHostname(url) {
@@ -226,7 +247,7 @@ export class SafeHttpClient {
     } catch {
       throw new SafetyError(`Invalid URL: ${url}`);
     }
-    if (parsed.protocol !== "https:") {
+    if (parsed.protocol !== "https:" && !isLoopback(parsed)) {
       throw new SafetyError(`Refusing non-HTTPS request to ${parsed.protocol}//${parsed.host}`);
     }
     if (!this.allowedHosts.has(parsed.hostname)) {

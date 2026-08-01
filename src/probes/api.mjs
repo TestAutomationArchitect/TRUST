@@ -590,5 +590,122 @@ export async function runApiProbes(config, client) {
     }
   }
 
+  // ── Cross-site request forgery ────────────────────────────────────
+  //
+  // Only meaningful where the browser attaches the credential automatically: a cookie session.
+  // An API that authenticates with an Authorization header is not CSRF-able, because a
+  // cross-origin page cannot set that header — saying so is more useful than a finding that
+  // does not apply.
+  const csrf = api.csrf;
+  if (!csrf?.endpoint) {
+    out.push(
+      skipped(
+        "API-CSRF",
+        "State-changing requests reject a cross-origin caller",
+        "config.api.csrf.endpoint is not defined (a state-changing endpoint that a browser session can reach)",
+      ),
+    );
+  } else if (config.safety.allowDenialTests !== true && config.safety.allowWrites !== true) {
+    out.push(
+      skipped(
+        "API-CSRF",
+        "State-changing requests reject a cross-origin caller",
+        "the probe issues a state-changing request that is expected to be refused — set safety.allowDenialTests",
+      ),
+    );
+  } else {
+    try {
+      const response = await client.request(new URL(csrf.endpoint, api.endpoint).href, {
+        method: csrf.method ?? "POST",
+        headers: {
+          // A form post from another origin: the content type a browser can send cross-site
+          // without a preflight, and an Origin the server should not trust.
+          "content-type": csrf.contentType ?? "application/x-www-form-urlencoded",
+          origin: csrf.origin ?? "https://trust-probe.invalid",
+          referer: csrf.origin ?? "https://trust-probe.invalid/",
+          ...(csrf.headers ?? {}),
+        },
+        body: csrf.body ?? new URLSearchParams(csrf.form ?? { trust: "probe" }).toString(),
+        write: true,
+        denialTest: true,
+      });
+      const text = (await response.text()).slice(0, 400);
+      // No cookie was sent, so acceptance here does not prove exploitability on its own — it
+      // proves the origin is not checked, which is the half this harness can establish.
+      const rejected = response.status === 401 || response.status === 403 || response.status === 419 || /csrf|origin|forbidden|invalid.*token/i.test(text);
+
+      out.push(
+        finding({
+          id: "API-CSRF",
+          title: "State-changing requests reject a cross-origin caller",
+          observed: "A state-changing request from an untrusted origin was accepted",
+          status: rejected ? "pass" : "fail",
+          severity: "high",
+          evidence:
+            `${csrf.method ?? "POST"} ${csrf.endpoint} with Origin: ${csrf.origin ?? "https://trust-probe.invalid"} → HTTP ${response.status}
+${text}
+` +
+            "Note: no session cookie was attached, so this establishes whether the origin is checked — not that a logged-in victim's browser would succeed. Confirm with a cookie session if this fails.",
+          remediation: rejected
+            ? ""
+            : "Reject state-changing requests whose Origin or Referer is not an approved one, and require a per-session CSRF token for cookie-authenticated endpoints. SameSite=Lax on the session cookie is a second layer, not a substitute.",
+        }),
+      );
+    } catch (error) {
+      out.push(inconclusive("API-CSRF", "State-changing requests reject a cross-origin caller", `Request failed: ${error.message}`));
+    }
+  }
+
+  // ── Mass assignment ───────────────────────────────────────────────
+  //
+  // The client sends a field it has no business setting — a role, a tenant, an owner — and the
+  // server binds it straight onto the model. It is the write-side twin of identity spoofing,
+  // and the evidence is the response echoing the privileged value back.
+  const massAssignment = api.massAssignment;
+  if (!massAssignment?.operation) {
+    out.push(skipped("API-MASS-ASSIGNMENT", "Privileged fields cannot be set by the client", "config.api.massAssignment is not defined"));
+  } else if (config.safety.allowDenialTests !== true && config.safety.allowWrites !== true) {
+    out.push(skipped("API-MASS-ASSIGNMENT", "Privileged fields cannot be set by the client", "the probe attempts a write that is expected to be refused — set safety.allowDenialTests"));
+  } else {
+    const injected = massAssignment.fields ?? { role: "admin", isAdmin: true, tenantId: "trust-probe-tenant" };
+    try {
+      const spec = {
+        ...massAssignment.operation,
+        variables: { ...(massAssignment.operation.variables ?? {}) },
+        body: massAssignment.operation.body ? { ...massAssignment.operation.body, ...injected } : undefined,
+      };
+      // Inject into the nested input object where one is used, since that is where a GraphQL
+      // mutation carries its payload.
+      const target = spec.variables.input ?? spec.variables;
+      Object.assign(target, injected);
+
+      const result = await execute(client, api, tokenA, spec, { write: true, denialTest: true });
+      const denied = isDenied(result);
+      const escapeRe = (text) => String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const echoed = Object.entries(injected).filter(([field, value]) => new RegExp(`"${escapeRe(field)}"\\s*:\\s*"?${escapeRe(value)}`, "i").test(result.text));
+      const bound = !denied && echoed.length > 0;
+
+      out.push(
+        finding({
+          id: "API-MASS-ASSIGNMENT",
+          title: "Privileged fields cannot be set by the client",
+          observed: `The server bound client-supplied ${echoed.map(([f]) => f).join(", ") || "privileged"} field(s)`,
+          status: bound ? "fail" : denied || echoed.length === 0 ? "pass" : "warn",
+          severity: "high",
+          evidence:
+            `Sent ${Object.keys(injected).join(", ")} in the payload → HTTP ${result.status}
+${result.text.slice(0, 500)}
+` +
+            `Verdict basis: ${bound ? `the response echoed ${echoed.map(([f]) => f).join(", ")} back` : denied ? "the request was refused" : "the privileged fields do not appear in the response"}`,
+          remediation: bound
+            ? "Bind requests to an explicit allowlist of client-settable fields. Privileged attributes — role, tenant, owner, entitlements — must be set server-side from verified claims, never accepted from the payload."
+            : "",
+        }),
+      );
+    } catch (error) {
+      out.push(inconclusive("API-MASS-ASSIGNMENT", "Privileged fields cannot be set by the client", `Request failed: ${error.message}`));
+    }
+  }
+
   return out;
 }

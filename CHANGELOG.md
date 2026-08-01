@@ -4,9 +4,40 @@ All notable changes are documented here. This project follows the semver contrac
 [README](README.md#versioning) — note that finding IDs and severities are part of the public
 API, and any change to a verdict is called out under **Verdict changes**.
 
-## [Unreleased]
+## [1.6.0] — 2026-07-31
 
-Positioning and robustness, from a second round of partner field testing.
+Positioning, robustness, report honesty and probe depth, from a second round of partner field
+testing.
+
+### Added — probe depth
+
+- **Server-side token validation** (`JWT-*`). The token probes read claims offline; these take
+  the real token, alter exactly one property — `alg:none`, a broken signature, claims the
+  signature does not cover, an unknown `kid` — and check the API refuses each. An API that
+  accepts any of them has no authentication, and the suite says so plainly: every authorisation
+  result in the run was obtained with an identity that API does not verify. The altered tokens
+  are invalid by construction and cannot authorise anything on a server that checks them.
+- **CSRF** (`API-CSRF`) — a state-changing request from an untrusted origin, expected to be
+  refused. It states what it does not prove: no session cookie is attached, so it establishes
+  whether the origin is checked, not that a logged-in victim's browser would succeed.
+- **Mass assignment** (`API-MASS-ASSIGNMENT`) — privileged fields (`role`, `tenantId`) sent in
+  the payload, with the response echoing them back as the evidence. The write-side twin of
+  identity spoofing.
+- **JSON-body injection** (`INJECT-BODY`) — the same payloads as the query-string probes, in a
+  request body, because a POST-first API was otherwise untested by a suite that only wrote to
+  query strings. Config-driven: a guessed schema returns 400 and reads as clean.
+- **Storage path traversal** (`STORAGE-PATH-TRAVERSAL`) in four encodings, since a prefix check
+  against an un-normalised key is not an authorisation boundary — and **signed-URL integrity**
+  (`STORAGE-SIGNED-URL`): altering the signature or extending the expiry must invalidate it.
+- **Multi-turn agent injection** (`AGENT-MULTI-TURN-INJECTION`) — an instruction planted in one
+  turn and claimed in a later one, after the guardrail that read the first turn has stopped
+  paying attention. A single-turn probe reports a boundary it never exercised.
+- **Tool-use abuse** (`AGENT-TOOL-ABUSE`) — the agent's tools are its real privilege. Requires
+  configured success indicators, because only the operator knows what an out-of-scope tool
+  result looks like in their answers.
+- **Loopback exception to HTTPS-only.** Plain HTTP is permitted on `localhost`, `127.0.0.1` and
+  `::1` — never a hostname that merely resolves there — so verification can happen before
+  deployment rather than after it.
 
 ### Changed
 

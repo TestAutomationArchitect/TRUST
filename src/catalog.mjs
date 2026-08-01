@@ -70,6 +70,27 @@ export const CATALOG = {
   "API-INTROSPECTION": { category: "Authorization — API", purpose: "Test whether GraphQL schema introspection is exposed to ordinary users, handing an attacker the full API surface." },
   "AUTH-PASSWORD-BYPASS": { category: "Authentication", purpose: "Verify the identity provider rejects direct username/password authentication so all users must pass through federated SSO." },
 
+  // ── Server-side token validation (the live half of token hygiene) ───
+  "JWT-CONFIG": { category: "Token Hygiene", purpose: "Validate that a JWT and an authenticated endpoint are available to test server-side verification." },
+  "JWT-ALG-NONE": { category: "Token Hygiene", purpose: "Verify the API rejects a token declaring alg:none — a server that accepts one has no authentication, because any caller can mint any identity." },
+  "JWT-SIGNATURE": { category: "Token Hygiene", purpose: "Verify the API rejects a token whose signature does not verify, confirming signatures are checked rather than claims merely being read." },
+  "JWT-CLAIMS-TAMPERED": { category: "Token Hygiene", purpose: "Verify the API rejects claims the signature does not cover, so privileges cannot be self-granted by editing a token body." },
+  "JWT-UNKNOWN-KID": { category: "Token Hygiene", purpose: "Verify the API rejects a token naming a signing key absent from the issuer's published key set, rather than falling back to a default key." },
+  "JWT-VERIFICATION": { category: "Token Hygiene", purpose: "Summarise whether token verification is enforced at all — every authorisation result in a run depends on the identity being trustworthy." },
+
+  // ── Request forgery and over-binding ────────────────────────────────
+  "API-CSRF": { category: "Authorization — API", purpose: "Verify state-changing requests reject an untrusted origin, so a page the user did not author cannot act with their session." },
+  "API-MASS-ASSIGNMENT": { category: "Authorization — API", purpose: "Verify privileged fields — role, tenant, owner — cannot be set from the request payload, the write-side twin of identity spoofing." },
+  "INJECT-BODY": { category: "Injection", purpose: "Verify JSON body fields are validated and encoded on the same path as query parameters, since a POST-first API is otherwise untested." },
+
+  // ── Storage boundaries beyond the prefix check ──────────────────────
+  "STORAGE-PATH-TRAVERSAL": { category: "Authorization — Storage", purpose: "Verify object keys cannot escape the caller's prefix through traversal sequences, in any encoding — a prefix comparison against an un-normalised key is not a boundary." },
+  "STORAGE-SIGNED-URL": { category: "Authorization — Storage", purpose: "Verify a signed URL cannot be altered or its expiry extended, confirming the signature is verified rather than the query string merely parsed." },
+
+  // ── Agent behaviour over more than one turn ─────────────────────────
+  "AGENT-MULTI-TURN-INJECTION": { category: "Prompt Security", purpose: "Verify an instruction planted in an earlier turn does not control later answers, since a guardrail that reads only the current turn never sees it." },
+  "AGENT-TOOL-ABUSE": { category: "Agent Authorization", purpose: "Verify tools cannot be steered outside the caller's entitlement — a tool that trusts the agent's arguments inherits every injection the agent is subject to." },
+
   // ── Identity provider configuration (unauthenticated) ───────────────
   "IDP-CONFIG": { category: "Authentication", purpose: "Validate that identity-provider configuration is present for IdP posture testing." },
   "IDP-DISCOVERY": { category: "Authentication", purpose: "Verify the provider publishes a readable OIDC discovery document over an HTTPS issuer, which is what makes the remaining IdP checks conclusive rather than probable." },

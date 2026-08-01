@@ -23,18 +23,20 @@ import { runAgentProbes } from "./probes/agent.mjs";
 import { runMobileProbes } from "./probes/mobile.mjs";
 import { runIsolationProbes } from "./probes/isolation.mjs";
 import { runIdpProbes } from "./probes/idp.mjs";
+import { runJwtProbes } from "./probes/jwt.mjs";
 
 export const PROFILES = {
   passive: { modules: ["web", "injection", "idp"], auth: "none", description: "Unauthenticated probes against the public surface and the identity provider" },
-  authenticated: { modules: ["token", "api", "storage", "isolation"], auth: "identity tokens", description: "API, storage and declared isolation boundaries with two identities" },
+  authenticated: { modules: ["token", "jwt", "api", "storage", "isolation"], auth: "identity tokens", description: "API, storage and declared isolation boundaries with two identities" },
   agent: { modules: ["token", "agent"], auth: "bearer tokens", description: "AI agent runtime, hierarchy and LLM safety" },
   mobile: { modules: ["mobile"], auth: "optional", description: "Mobile platform surface (server-observable controls)" },
-  all: { modules: ["token", "web", "injection", "idp", "api", "storage", "isolation", "agent", "mobile"], auth: "all tokens", description: "Every module" },
+  all: { modules: ["token", "jwt", "web", "injection", "idp", "api", "storage", "isolation", "agent", "mobile"], auth: "all tokens", description: "Every module" },
 };
 
 /** Built-in probe modules, in execution order. */
 export const BUILTIN_PROBES = [
   { name: "token", label: "token hygiene (no requests)", run: runTokenProbes },
+  { name: "jwt", label: "server-side token validation", run: runJwtProbes },
   { name: "web", label: "web / infrastructure", run: runWebProbes },
   { name: "idp", label: "identity provider configuration", run: runIdpProbes },
   { name: "injection", label: "input handling", run: runInjectionProbes },
@@ -146,6 +148,7 @@ const MODULE_FOR_PREFIX = [
   [/^INJECT-/, "injection"],
   [/^TOKEN-/, "token"],
   [/^(API-|SESSION-|AUTH-)/, "api"],
+  [/^JWT-/, "jwt"],
   [/^STORAGE-/, "storage"],
   [/^AGENT-/, "agent"],
   [/^MOBILE-/, "mobile"],

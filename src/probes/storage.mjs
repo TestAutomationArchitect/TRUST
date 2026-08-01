@@ -92,7 +92,6 @@ export async function runStorageProbes(config, client) {
   const targets = storage.targets ?? [];
   if (targets.length === 0) {
     out.push(skipped("STORAGE-CROSS-TENANT", "Cross-tenant storage isolation", "config.storage.targets is empty"));
-    return out;
   }
 
   for (const target of targets) {
@@ -151,6 +150,121 @@ export async function runStorageProbes(config, client) {
         `only one direction of isolation was tested: ${reasonB}`,
       ),
     );
+  }
+
+  // ── Path traversal out of the caller's prefix ─────────────────────
+  //
+  // Isolation is usually enforced by a prefix, and a prefix is a string comparison. If the key
+  // is not normalised before that comparison, "user-a/../user-b/secret.pdf" satisfies it and
+  // reads someone else's object. The encodings matter: a gateway may normalise one form and
+  // pass another through unchanged.
+  if (!storage.baseUrl || !tokenA) {
+    out.push(
+      skipped(
+        "STORAGE-PATH-TRAVERSAL",
+        "Object keys cannot escape the caller's prefix",
+        storage.baseUrl ? `authenticated traversal needs an identity: ${reasonA}` : "config.storage.baseUrl is not configured",
+      ),
+    );
+  } else {
+    const ownPrefix = storage.ownPrefix ?? storage.prefix ?? "protected/";
+    const escapes = [
+      { name: "dot-dot", key: `${ownPrefix}../` },
+      { name: "encoded", key: `${ownPrefix}%2e%2e%2f` },
+      { name: "double-encoded", key: `${ownPrefix}%252e%252e%252f` },
+      { name: "backslash", key: `${ownPrefix}..%5c` },
+    ];
+    const escaped = [];
+    let attempted = 0;
+    for (const escape of escapes) {
+      if (client.remainingRequests < 2) break;
+      attempted += 1;
+      try {
+        const url = new URL(escape.key, storage.baseUrl).href;
+        const response = await client.request(url, asIdentityInit(storage, tokenA));
+        const text = (await response.text()).slice(0, 400);
+        // A listing or an object body from outside the prefix is the finding; a 403, a 404 or
+        // an S3 <Error> document is the control holding.
+        if (readable(response.status, text) && !/AccessDenied|NoSuchKey/i.test(text)) {
+          escaped.push({ ...escape, status: response.status, snippet: text.slice(0, 200) });
+        }
+      } catch (error) {
+        /* a refused or failed request is not evidence of traversal */
+      }
+    }
+
+    out.push(
+      finding({
+        id: "STORAGE-PATH-TRAVERSAL",
+        title: "Object keys cannot escape the caller's prefix",
+        observed: "A traversal sequence in the object key reached outside the caller's prefix",
+        status: escaped.length ? "fail" : attempted === 0 ? "warn" : "pass",
+        warnKind: "partial",
+        severity: "critical",
+        evidence: escaped.length
+          ? escaped.map((e) => [`${e.name}: ${e.key} → HTTP ${e.status}`, e.snippet].join("\n")).join("\n\n")
+          : `Tried ${attempted} traversal encoding(s) against ${ownPrefix}; every one was refused or returned nothing.`,
+        remediation: escaped.length
+          ? "Normalise and canonicalise the key before the prefix check, and reject any key containing a traversal sequence in any encoding. A prefix comparison against an un-normalised key is not an authorisation boundary."
+          : "",
+      }),
+    );
+  }
+
+  // ── Signed URL integrity ──────────────────────────────────────────
+  //
+  // A signed URL is a bearer credential with the scope written into it. Two questions decide
+  // whether it holds: does altering the signature invalidate it, and does altering the expiry
+  // extend it? Both are answered by sending a URL the caller already has, changed by one field.
+  const signedUrl = storage.signedUrl;
+  if (!signedUrl) {
+    out.push(skipped("STORAGE-SIGNED-URL", "A signed URL cannot be altered or extended", "config.storage.signedUrl is not defined (a currently valid signed URL to test)"));
+  } else {
+    try {
+      const original = new URL(signedUrl);
+      const tampered = new URL(signedUrl);
+      const signatureParam = ["X-Amz-Signature", "Signature", "sig", "sv"].find((p) => tampered.searchParams.has(p));
+      const expiryParam = ["X-Amz-Expires", "Expires", "se"].find((p) => tampered.searchParams.has(p));
+
+      if (!signatureParam) {
+        out.push(
+          skipped(
+            "STORAGE-SIGNED-URL",
+            "A signed URL cannot be altered or extended",
+            "the configured URL carries no recognisable signature parameter, so there is nothing to tamper with",
+            "not-applicable",
+          ),
+        );
+      } else {
+        const signature = tampered.searchParams.get(signatureParam);
+        tampered.searchParams.set(signatureParam, signature.slice(0, -4) + (signature.slice(-4) === "aaaa" ? "bbbb" : "aaaa"));
+        if (expiryParam) tampered.searchParams.set(expiryParam, "604800");
+
+        const response = await client.request(tampered.href);
+        const text = (await response.text()).slice(0, 300);
+        const rejected = !readable(response.status, text) || /SignatureDoesNotMatch|AccessDenied|AuthenticationFailed/i.test(text);
+
+        out.push(
+          finding({
+            id: "STORAGE-SIGNED-URL",
+            title: "A signed URL cannot be altered or extended",
+            observed: "An altered signed URL was still honoured",
+            status: rejected ? "pass" : "fail",
+            severity: "critical",
+            evidence:
+              `Altered ${signatureParam}${expiryParam ? ` and ${expiryParam}` : ""} on a signed URL for ${original.pathname} → HTTP ${response.status}
+${text}
+` +
+              `Verdict basis: ${rejected ? "the store rejected the altered signature" : "the store served the object despite the signature not matching"}`,
+            remediation: rejected
+              ? ""
+              : "The signature is not being verified, which makes every signed URL forgeable. Check the store or gateway is validating signatures rather than only parsing the query string, and that expiry is part of the signed payload.",
+          }),
+        );
+      }
+    } catch (error) {
+      out.push(inconclusive("STORAGE-SIGNED-URL", "A signed URL cannot be altered or extended", `Request failed: ${error.message}`));
+    }
   }
 
   return out;

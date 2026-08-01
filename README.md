@@ -57,7 +57,7 @@ the changelog says so for that version, and `npm audit signatures` will report n
 Check it rather than taking this paragraph's word for it.
 
 Airgapped partners can install the checksummed tarball attached to each release:
-`npm i ./trust-verify-1.5.0.tgz`.
+`npm i ./trust-verify-1.6.0.tgz`.
 
 ### Commands
 
@@ -127,7 +127,7 @@ export default defineProbe({
 | **Zero dependencies** | Node ≥ 22 standard library only — `fetch`, `node:tls`, `node:crypto`, `node:test`. This is supply-chain hygiene, not engineering purity: TRUST installs *inside your pipeline*, and a security tool that drags in hundreds of transitive packages is arguing against itself. `npm ci --ignore-scripts` works. Anything genuinely needing weight — a browser, a database — will ship as a separate optional package rather than be forced on every install. |
 | **Deterministic verdicts** | Every test returns PASS / FAIL / WARN / SKIP from a pattern match on status codes, headers or bodies. No model judges a result. Where the system under test is itself stochastic — an LLM agent — the *decision rule* is what stays deterministic: a fixed number of attempts, and a canary appearing in any of them is a failure. Same input, same verdict, so a finding can be argued with a vendor and gated on in CI. |
 | **Evidence-backed findings** | Every finding carries purpose, evidence and remediation. No finding without proof. |
-| **Incapable of harm** | All traffic passes through `SafeHttpClient`: HTTPS-only, host allowlist, hard request cap, delay floor, timeouts, manual redirects, production block, write guard, agent-invocation guard. |
+| **Incapable of harm** | All traffic passes through `SafeHttpClient`: HTTPS-only, host allowlist, hard request cap, delay floor, timeouts, manual redirects, production block, write guard, agent-invocation guard. Plain HTTP is permitted on **loopback only** — `localhost`, `127.0.0.1`, `::1` — so a developer can test before deploying; never a hostname that merely resolves there, since DNS can answer differently between the check and the request. |
 | **Redaction by default** | JWTs, bearer tokens, cloud keys, connection strings, signed-URL signatures, PEM blocks and `KEY=value` secrets are stripped before evidence reaches disk. |
 | **A skip is never a pass** | Missing credentials and unmet preconditions produce SKIP, are excluded from scoring, and are listed under Retest Requirements. A sweep that could not finish reports how far it got: nothing performed is a skip, a partial sweep is a warning, and only a complete sweep can pass. |
 | **Credentials are acquired, never printed** | `auth.strategies` signs in through the same guarded client, so an IdP host must be allowlisted like any other. Config stores env var *names*; the console, the run JSON and the exports carry names, kinds and expiry — never a token. |
@@ -166,13 +166,14 @@ trust/
 │       ├── api.mjs           cross-user, scoping, RBAC, identity, inventory, query cost, session
 │       ├── storage.mjs       object-store isolation, public access
 │       ├── idp.mjs           OIDC discovery, PKCE, implicit flow, native password grant
+│       ├── jwt.mjs           server-side token validation — alg:none, signature, kid, claims
 │       ├── isolation.mjs     declared authorisation boundaries — five types, config-driven
 │       ├── agent.mjs         AI runtime: hierarchy, sessions, memory, injection, disclosure
 │       └── mobile.mjs        deep links, app-site association, attestation
 ├── scripts/
 │   ├── preflight.mjs         publish gate: no deps, no install scripts, no secrets shipped
 │   └── combined-report.mjs   deprecated shim → `trust report`
-├── test/                     181 tests over safety, auth, config, isolation, export, probes
+├── test/                     210 tests over safety, auth, config, isolation, export, probes
 └── reports/                  generated output (gitignored)
 ```
 
@@ -334,17 +335,21 @@ trust run --dotenv .trust-credentials.env --config config/dev.json --profile aut
 
 **Web / infrastructure** (passive) — HSTS, CSP (with weak-directive detection), X-Content-Type-Options, Referrer-Policy, Permissions-Policy, clickjacking, frame-ancestors allowlist, cookie flags, token-in-web-storage, source maps, sensitive-file exposure (with SPA-fallback discrimination), CORS reflection, open redirect, rate limiting, TLS version, certificate validity.
 
-**API / authorisation** (authenticated) — cross-user record read, owner-scoped lists, permission-mutation RBAC, client-supplied identity, GraphQL introspection, error disclosure, native password-grant availability, plus arbitrary `extraChecks` per endpoint.
+**API / authorisation** (authenticated) — cross-user record read, owner-scoped lists, permission-mutation RBAC, client-supplied identity, cross-origin state change (CSRF), mass assignment of privileged fields, GraphQL introspection, error disclosure, native password-grant availability, plus arbitrary `extraChecks` per endpoint.
 
-**Storage** — anonymous listing/read, cross-tenant prefix access, cross-user object access, from both directions when two identities are supplied.
+**Server-side token validation** (authenticated) — the live half of token hygiene. The token probes read claims offline; these take the *real* token, alter exactly one property of it — `alg:none`, a broken signature, elevated claims the signature does not cover, an unknown `kid` — and check the API refuses each one. An API that accepts any of them has no authentication, and every authorisation result in the run is then describing what happens to a caller the server believes rather than to an attacker.
 
-**AI agent** — unauthorised agent target, identity spoofing, direct and indirect prompt injection, dangerous URI output, cross-session inheritance, memory isolation, sub-agent hierarchy bypass, and — *conditionally, only when the hierarchy is breached* — sub-agent ACL and guardrail bypass. Then system-prompt, credential and tool-schema disclosure.
+**Storage** — anonymous listing/read, cross-tenant prefix access, cross-user object access from both directions, path traversal out of the caller's prefix in four encodings, and signed-URL integrity (altering the signature or extending the expiry must invalidate it).
+
+**AI agent** — unauthorised agent target, identity spoofing, direct and indirect prompt injection, **multi-turn injection** (planted in one turn, claimed in a later one, after the guardrail that read the first has stopped paying attention), **tool-use abuse**, dangerous URI output, cross-session inheritance, memory isolation, sub-agent hierarchy bypass, and — *conditionally, only when the hierarchy is breached* — sub-agent ACL and guardrail bypass. Then system-prompt, credential and tool-schema disclosure.
 
 **Mobile** — deep-link destination validation, app-site association files, device-attestation enforcement. Certificate pinning and sandbox storage SKIP with the exact manual procedure, because a network harness cannot verify them.
 
 **Identity provider** (passive) — discovery document, PKCE with S256, implicit flow still advertised, an unauthenticated token endpoint uncompensated by PKCE, what the application's own authorisation request asks for, and a Cognito user pool still accepting `USER_PASSWORD_AUTH`. Session fixation and the post-callback verifier cookie SKIP with the manual procedure, for the same reason.
 
 **Declared boundaries** — whatever `config.isolation` states: record ownership, storage prefixes, enumeration, privileged mutations and client-supplied identity. These are the tests a team writes about its own data model, without writing code.
+
+**Input handling** covers query parameters throughout, and JSON request bodies where `injection.body` declares one — a POST-first API is otherwise untested by a suite that only writes to query strings.
 
 Injection and leak tests use the **canary technique**: plant a unique UUID, assert on its absence. No interpretation, no false confidence.
 
@@ -676,7 +681,7 @@ Rules for probes: check prerequisites and SKIP (never crash) on missing config o
 npm test        # node --test "test/*.test.mjs"
 ```
 
-181 tests cover the safety guards (HTTPS-only, allowlist, per-run and per-suite caps, throttle, write/agent/denial guards, production block), the auth strategies (SigV4 against AWS's published test vector, the SRP group by its own defining property), config resolution and inheritance, declared isolation boundaries and conditional execution, the finding factory and every redaction rule, SARIF and JUnit output, baseline diffing, report construction, HTML escaping, scoring, domain ordering and catalogue integrity.
+210 tests cover the safety guards (HTTPS-only, allowlist, per-run and per-suite caps, throttle, write/agent/denial guards, production block), the auth strategies (SigV4 against AWS's published test vector, the SRP group by its own defining property), config resolution and inheritance, declared isolation boundaries and conditional execution, the finding factory and every redaction rule, SARIF and JUnit output, baseline diffing, report construction, HTML escaping, scoring, domain ordering and catalogue integrity.
 
 They are not shipped in the package — a partner installing TRUST should not pay for the test suite — so run them from a clone.
 
