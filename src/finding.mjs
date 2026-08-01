@@ -59,6 +59,12 @@ const REDACTIONS = [
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "[REDACTED_PRIVATE_KEY]"],
 ];
 
+/** Clamp free text to a length every output format can carry. */
+function truncate(text) {
+  return text.length > MAX_EVIDENCE ? `${text.slice(0, MAX_EVIDENCE)}
+… [truncated ${text.length - MAX_EVIDENCE} chars]` : text;
+}
+
 /** Strip credentials from any value and clamp its length. */
 export function redact(value) {
   let text = typeof value === "string" ? value : stringify(value);
@@ -112,7 +118,10 @@ export function finding({ id, title, status, severity = "info", evidence = "", r
     // Redacted like evidence: a probe author will eventually put a response fragment here.
     observed: status === "fail" || status === "warn" ? redact(observed) : "",
     evidence: redact(evidence),
-    remediation: status === "pass" ? "" : String(remediation ?? ""),
+    // Bounded like evidence: remediation is rendered into HTML, XML and JSON, and an
+    // unbounded string from a probe that interpolated a response body would bloat every one
+    // of them.
+    remediation: status === "pass" ? "" : truncate(String(remediation ?? "")),
     // A probe may classify an individual finding, overriding the catalogue lookup. This is
     // what lets one probe report into two domains, and it is what survives into the run JSON
     // so the combined report does not have to re-derive it from a catalogue it cannot see.

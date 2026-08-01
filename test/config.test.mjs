@@ -285,3 +285,27 @@ test("preflight does not authenticate — a check that costs a login stops being
     globalThis.fetch = originalFetch;
   }
 });
+
+test("preflight judges the expired-token fixture by the opposite rule", async () => {
+  const config = baseConfig({ api: { endpoint: "https://dev.example.com/graphql", session: { expiredTokenEnv: "TRUST_TEST_FIXTURE" } } });
+  const jwt = (exp) => `${Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url")}.${Buffer.from(JSON.stringify({ sub: "a", exp })).toString("base64url")}.sig`;
+  const expired = jwt(Math.floor(Date.now() / 1000) - 3600);
+  const live = jwt(Math.floor(Date.now() / 1000) + 3600);
+
+  process.env.TRUST_TEST_FIXTURE = expired;
+  try {
+    const { checks, ok } = await runPreflight(config, { profile: "authenticated", reach: false });
+    // The fixture exists to be rejected by the target. Failing preflight on it — as 1.5.0 did —
+    // blocks a run over a token whose entire purpose is to have lapsed.
+    assert.equal(ok, true);
+    assert.equal(checks.find((c) => c.name === "token TRUST_TEST_FIXTURE").status, "ok");
+
+    process.env.TRUST_TEST_FIXTURE = live;
+    const stillValid = await runPreflight(config, { profile: "authenticated", reach: false });
+    const check = stillValid.checks.find((c) => c.name === "token TRUST_TEST_FIXTURE");
+    assert.equal(check.status, "warn", "a fixture that has not lapsed cannot demonstrate anything");
+    assert.match(check.detail, /still valid/);
+  } finally {
+    delete process.env.TRUST_TEST_FIXTURE;
+  }
+});

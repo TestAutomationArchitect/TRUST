@@ -58,11 +58,18 @@ export function resolvedSections(config) {
   return out;
 }
 
+/** A config key must never reach an object's prototype, whatever the file says. */
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 /** Objects merge, everything else replaces — an array in a child is a deliberate override. */
 function deepMerge(base, override) {
   if (Array.isArray(override) || override === null || typeof override !== "object") return override;
   const out = { ...base };
   for (const [key, value] of Object.entries(override)) {
+    // A config is parsed from a file that may be generated, inherited or vendored. Assigning
+    // these keys is never what a config author means, and it is exactly what a prototype
+    // pollution payload looks like.
+    if (UNSAFE_KEYS.has(key)) continue;
     const current = out[key];
     out[key] = current && typeof current === "object" && !Array.isArray(current) ? deepMerge(current, value) : value;
   }

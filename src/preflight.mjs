@@ -71,7 +71,6 @@ function tokenChecks(config) {
   push("agent identity A", agent?.accessTokenAEnv);
   push("agent identity B", agent?.accessTokenBEnv);
   push("mobile identity", mobile?.tokenEnv);
-  push("expired-token fixture", api?.session?.expiredTokenEnv);
 
   const now = Math.floor(Date.now() / 1000);
   const results = [];
@@ -98,6 +97,26 @@ function tokenChecks(config) {
       results.push(check(`token ${envName}`, "warn", `${label}: expires in ${Math.round((exp - now) / 60)} min — it may lapse mid-run`));
     } else {
       results.push(check(`token ${envName}`, "ok", `${label}: valid${exp ? ` for ${Math.round((exp - now) / 60)} more min` : " (no exp claim)"}`));
+    }
+  }
+
+  // The expired-token fixture is judged by the opposite rule: it exists to be rejected, so an
+  // expired one is correct and a *valid* one is the problem. Checking it like a real identity
+  // failed preflight on a token whose entire purpose is to have lapsed.
+  const fixtureEnv = api?.session?.expiredTokenEnv;
+  if (fixtureEnv) {
+    const fixture = process.env[fixtureEnv];
+    const claims = fixture ? decodeJwt(fixture)?.payload : null;
+    if (!fixture) {
+      results.push(check(`token ${fixtureEnv}`, "warn", "expired-token fixture: not set — SESSION-EXPIRED-TOKEN will skip"));
+    } else if (fixture && !claims) {
+      // Nothing here can tell whether an opaque fixture has lapsed; say so rather than imply
+      // the check passed.
+      results.push(check(`token ${fixtureEnv}`, "ok", "expired-token fixture: present (opaque, so expiry cannot be confirmed from here)"));
+    } else if (claims?.exp && claims.exp >= now) {
+      results.push(check(`token ${fixtureEnv}`, "warn", `expired-token fixture: still valid for ${Math.round((claims.exp - now) / 60)} min — it cannot demonstrate that expiry is enforced until it lapses`));
+    } else {
+      results.push(check(`token ${fixtureEnv}`, "ok", "expired-token fixture: expired, which is what this one is for"));
     }
   }
 

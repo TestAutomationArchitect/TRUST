@@ -4,6 +4,44 @@ All notable changes are documented here. This project follows the semver contrac
 [README](README.md#versioning) — note that finding IDs and severities are part of the public
 API, and any change to a verdict is called out under **Verdict changes**.
 
+## [Unreleased]
+
+Positioning and robustness, from a second round of partner field testing.
+
+### Changed
+
+- **The README now states what TRUST is for, and what it is not.** It was inviting comparison
+  with scanners — 84 probes, OWASP coverage, injection payloads — and then being judged on
+  scanner metrics it will never win: payload counts, fuzzing, adaptivity. The frame is control
+  assurance, not vulnerability discovery: the unit is a control, the verdict is deterministic,
+  and the output is an assurance artifact. "Run this before the pentest, not instead of it" is
+  now the first thing a reader sees rather than something a reviewer discovers on day two.
+- **Zero dependencies is stated as supply-chain hygiene**, not engineering purity, with the
+  escape hatch named: anything genuinely needing weight ships as a separate optional package.
+- **Determinism is defined for stochastic targets.** An LLM agent is not deterministic; the
+  *decision rule* is — a fixed number of attempts, and a canary in any of them is a failure.
+
+### Fixed
+
+- **A probe module that threw destroyed the entire run.** Only `SafetyError` was caught, so any
+  other exception discarded every finding already produced and wrote nothing to disk. The
+  extension point invites third-party code, so one partner's defect must not cost an assessment:
+  the module is now recorded as crashed, with the error as evidence and remediation that says
+  plainly the module's controls are unverified — never a pass.
+- **`trust preflight` failed on the deliberately-expired token fixture.** `api.session.expiredTokenEnv`
+  was checked like a real identity, so preflight exited 1 over a token whose entire purpose is
+  to have lapsed. It is now judged by the opposite rule: expired is correct, still-valid is a
+  warning, opaque says so rather than implying a pass.
+- **SigV4 signed an empty body for any non-string payload.** A Buffer body produced a valid
+  signature over the wrong bytes, which a target answers with `SignatureDoesNotMatch` — reading
+  as a broken credential rather than an unsupported body type. Buffers and typed arrays are now
+  signed as sent, and anything unhashable throws where the cause is visible.
+- **`remediation` was unbounded** while evidence was clamped, so a probe that interpolated a
+  response body into it would bloat the HTML, the JUnit XML and the SARIF alike.
+- **Config keys can no longer reach an object's prototype** through `extends`. Nothing was
+  exploitable — `Object.prototype` was never reachable — but a config is a file that may be
+  generated, inherited or vendored, and `__proto__` in one is never what an author meant.
+
 ## [1.5.0] — 2026-07-30
 
 The adoption release: credentials TRUST acquires rather than expects, authorisation boundaries

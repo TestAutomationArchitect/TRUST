@@ -1,8 +1,37 @@
 # TRUST
 
-**T**rust **R**eporting & **U**nified **S**ecurity **T**esting — a security verification platform for web, API, storage, AI-agent and mobile targets.
+**T**rust **R**eporting & **U**nified **S**ecurity **T**esting — continuous verification that the
+security controls you designed are actually wired up, across web, API, storage, AI-agent and
+mobile surfaces.
 
-TRUST turns a target into a **Trust Assessment**: a posture score, a deployment-readiness verdict, architectural root causes, and per-finding evidence with remediation.
+TRUST asks one question, repeatedly and in CI: **do the controls hold?** Not "what could an
+attacker find" — that is a scanner's question, and a scanner will always answer it better. TRUST
+answers the question a scanner cannot: *cross-user isolation is supposed to hold on this
+endpoint — prove it did, today, with evidence a reviewer can check.*
+
+Each run produces a **Trust Assessment**: a control-by-control verdict with the evidence behind
+it, the remediation if it failed, and the exact command that retests it.
+
+### What this is, and what it is not
+
+|  | A scanner (ZAP, Burp, Nuclei) | TRUST |
+|---|---|---|
+| The question | "What can an attacker find?" | "Are the controls we designed wired up?" |
+| The unit | A vulnerability | A **control** |
+| The verdict | Probabilistic — needs triage | Deterministic — same input, same verdict, every time |
+| Who runs it | A specialist, periodically | The team that owns the service, every pipeline run |
+| The output | A finding list | An assurance artifact: evidence, remediation, retest |
+
+**Run this before the pentest, not instead of it.** TRUST catches the controls that were never
+wired up, the ones that regressed last sprint, and the ones nobody tested because testing them
+by hand takes two identities and an afternoon. It does not fuzz, it does not mutate payloads,
+and it will not find the novel bug your pentester earns their fee on. Those are different jobs,
+and conflating them is how teams end up trusting a green result they should not.
+
+Where it is genuinely ahead of the market is the AI-agent surface — hierarchy bypass, session
+and memory isolation, prompt injection with canary verification, guardrail enforcement per tier
+— because almost nothing else tests the infrastructure *around* a model rather than the model
+itself.
 
 ```bash
 npx trust-verify init --target https://dev.example.com      # scaffold config + .env template
@@ -95,8 +124,8 @@ export default defineProbe({
 
 | Guarantee | How it is enforced |
 |---|---|
-| **Zero dependencies** | Node ≥ 22 standard library only — `fetch`, `node:tls`, `node:crypto`, `node:test`, `--env-file`. No install step, nothing to audit. |
-| **Deterministic verdicts** | Every test returns PASS / FAIL / WARN / SKIP from a pattern match on status codes, headers or bodies. No model judges a result. |
+| **Zero dependencies** | Node ≥ 22 standard library only — `fetch`, `node:tls`, `node:crypto`, `node:test`. This is supply-chain hygiene, not engineering purity: TRUST installs *inside your pipeline*, and a security tool that drags in hundreds of transitive packages is arguing against itself. `npm ci --ignore-scripts` works. Anything genuinely needing weight — a browser, a database — will ship as a separate optional package rather than be forced on every install. |
+| **Deterministic verdicts** | Every test returns PASS / FAIL / WARN / SKIP from a pattern match on status codes, headers or bodies. No model judges a result. Where the system under test is itself stochastic — an LLM agent — the *decision rule* is what stays deterministic: a fixed number of attempts, and a canary appearing in any of them is a failure. Same input, same verdict, so a finding can be argued with a vendor and gated on in CI. |
 | **Evidence-backed findings** | Every finding carries purpose, evidence and remediation. No finding without proof. |
 | **Incapable of harm** | All traffic passes through `SafeHttpClient`: HTTPS-only, host allowlist, hard request cap, delay floor, timeouts, manual redirects, production block, write guard, agent-invocation guard. |
 | **Redaction by default** | JWTs, bearer tokens, cloud keys, connection strings, signed-URL signatures, PEM blocks and `KEY=value` secrets are stripped before evidence reaches disk. |

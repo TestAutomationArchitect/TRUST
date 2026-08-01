@@ -172,17 +172,27 @@ export async function runProfile({ config, profile, out = "", baseDir = process.
       // unaffected — every built-in did until conditional execution existed.
       produced = await probe.run(config, client, { findings: [...findings] });
     } catch (error) {
-      if (!(error instanceof SafetyError)) throw error;
-      // A guard tripping is a result, not a crash: record it and keep going.
-      onEvent({ type: "module-aborted", name: probe.name, message: error.message });
+      // Two different failures, both survivable, neither allowed to cost the run.
+      //
+      // A guard tripping is a result: the harness refused to do something, and that belongs in
+      // the report. A probe throwing anything else is a defect in the probe — and since the
+      // extension point invites third-party code, one partner's bug must not destroy an
+      // assessment that has already produced findings. The module is recorded as failed and
+      // the run continues; the error text is the evidence.
+      const guard = error instanceof SafetyError;
+      onEvent({ type: "module-aborted", name: probe.name, message: error.message, guard });
       produced = [
         {
           id: `${probe.name.toUpperCase()}-ABORTED`,
           title: `${probe.label} probe suite completed`,
           status: "warn",
           severity: "low",
-          evidence: `Module aborted by a safety guard: ${error.message}`,
-          remediation: "Raise safety.maxRequests or narrow the probe set, then re-run this module.",
+          evidence: guard
+            ? `Module aborted by a safety guard: ${error.message}`
+            : [`Module crashed: ${error.name}: ${error.message}`, ...String(error.stack ?? "").split("\n").slice(1, 4)].join("\n"),
+          remediation: guard
+            ? "Raise safety.maxRequests or narrow the probe set, then re-run this module."
+            : `The probe module "${probe.name}" threw rather than returning findings. Every control it owns is unverified — treat this as no coverage for that module, not as a pass. Fix the probe and re-run.`,
         },
       ];
     }

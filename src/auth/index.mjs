@@ -382,5 +382,13 @@ export function authInit(credential, { header = "authorization", scheme = "Beare
 /** Apply a credential to an outgoing request. Called by SafeHttpClient, after every guard. */
 export function applyCredential(credential, { method, url, headers, body }) {
   if (credential?.kind !== "sigv4") return headers;
-  return { ...headers, ...signRequest({ method, url, headers, body: typeof body === "string" ? body : "", credentials: credential.aws }) };
+  // The signature must cover the bytes actually sent. Coercing an unhashable body to "" would
+  // produce a valid-looking signature over the wrong payload, and the target would reject it
+  // with SignatureDoesNotMatch — which reads as a broken credential rather than a probe that
+  // sent something this code cannot sign. Fail where the cause is visible instead.
+  const payload = body == null ? "" : typeof body === "string" || ArrayBuffer.isView(body) || body instanceof ArrayBuffer ? body : null;
+  if (payload === null) {
+    throw new TypeError(`SigV4 cannot sign a ${body?.constructor?.name ?? typeof body} body — pass a string or a Buffer, since the signature must cover the exact bytes sent`);
+  }
+  return { ...headers, ...signRequest({ method, url, headers, body: payload, credentials: credential.aws }) };
 }
