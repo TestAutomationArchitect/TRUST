@@ -12,6 +12,16 @@ import { computeScores } from "./scoring.mjs";
 import { esc, severityBadge, statusCls, ownerFor } from "./html.mjs";
 import { headline } from "../finding.mjs";
 
+/** What each sub-kind means, shown on hover where the badge appears. */
+const KIND_TIP = {
+  unconfigured: "Not assessed because the configuration does not say where to look — the target may well have this problem.",
+  "not-applicable": "Cannot apply to this target, or cannot be verified over HTTP at all.",
+  precondition: "The harness looked and could not proceed: an upstream control held, an identity was absent, or a guard refused.",
+  inconclusive: "The harness could not tell — a request failed or a response was ambiguous.",
+  partial: "The check ran but did not complete, so the absence of a hit proves nothing.",
+  advisory: "The control is present but weaker than it should be; nothing is broken.",
+};
+
 /** Worst status wins when the same control is executed in more than one profile. */
 const STATUS_RANK = { fail: 0, warn: 1, pass: 2, skip: 3 };
 
@@ -144,6 +154,7 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
 <details class="finding-card f-${f.status}">
   <summary class="finding-sum">
     <span class="tag ${statusCls(f.status)}">${f.status.toUpperCase()}</span>
+    ${f.skipKind || f.warnKind ? `<span class="kind-badge" title="${esc(KIND_TIP[f.skipKind || f.warnKind] ?? "")}">${esc(f.skipKind || f.warnKind)}</span>` : ""}
     ${severityBadge(f.severity, f.status)}
     <span class="finding-name">${esc(headline(f))}</span>
     ${(f.profiles ?? [f.profile]).filter(Boolean).map((p) => `<span class="env-badge">${esc(p)}</span>`).join(" ")}
@@ -577,9 +588,16 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
     domainScores.set(domain, { score: null, status: "skip", pass: 0, fail: 0, warn: 0, skip: 0, totalWeight: 0, passWeight: 0, notAssessed: true });
   }
   const assessedDomains = [...domainScores.values()].filter((d) => !d.notAssessed && d.totalWeight > 0).length;
+  // A skip that means "nobody looked" and one that means "this cannot apply here" are
+  // different facts about coverage. Counting them together is how a run reads as safer than it
+  // is: the unconfigured ones are precisely the controls a team still owes itself.
+  const skipsByKind = { unconfigured: 0, "not-applicable": 0, precondition: 0 };
+  for (const f of displaySkips) skipsByKind[f.skipKind ?? "unconfigured"] = (skipsByKind[f.skipKind ?? "unconfigured"] ?? 0) + 1;
+
   const coverage = {
     assessed: assessedCount,
     unvalidated: unvalidatedCount,
+    skipsByKind,
     notRun: notRun.length,
     applicable: applicableCount,
     percent: coveragePct,

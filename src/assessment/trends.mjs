@@ -34,6 +34,7 @@
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
+import { SEV_WEIGHT } from "../finding.mjs";
 
 const MAX_ENTRIES = 100;
 
@@ -58,6 +59,14 @@ export function trendEntry(model, reports) {
     // as a score movement nobody made. Recorded so the delta can say so.
     scoringUnit: model.unitCounts?.unit ?? "execution",
     controls: model.unitCounts?.controls ?? null,
+    // Every assessed control with its outcome and weight class. This is what makes a later run
+    // able to say *why* the score moved — which controls are new, which regressed, which were
+    // fixed — instead of reporting a bare delta that a coverage change could equally explain.
+    // Identity and status only; no evidence ever enters the history file.
+    assessed: model.allFindings
+      .filter((f) => f.status !== "skip")
+      .map((f) => ({ id: f.id, status: f.status, severity: f.severity }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
     score: model.overallScore,
     readiness: model.readiness,
     coverage: { percent: model.coverage.percent, assessed: model.coverage.assessed, applicable: model.coverage.applicable },
@@ -124,6 +133,40 @@ export function deltaAgainstPrevious(history, current) {
   if (!sameUnit) caveats.push(`the scoring unit changed (${previous.scoringUnit ?? "execution"} → ${current.scoringUnit ?? "execution"}), so the score movement reflects the change of unit, not the target`);
   if (String(previous.profiles) !== String(current.profiles)) caveats.push(`different profiles ran (${previous.profiles.join(", ")} → ${current.profiles.join(", ")})`);
 
+  // ── Why the score moved ───────────────────────────────────────────
+  // A bare "▲1" invites the reading that something improved. It might equally mean three new
+  // passing controls were configured, or that a failing one stopped being assessed. The
+  // attribution below separates those, and the common-control score is the only genuinely
+  // like-for-like comparison available: the same controls, scored the same way, in both runs.
+  const nowAssessed = new Map((current.assessed ?? []).map((c) => [c.id, c]));
+  const wasAssessed = new Map((previous.assessed ?? []).map((c) => [c.id, c]));
+  const commonIds = [...nowAssessed.keys()].filter((id) => wasAssessed.has(id));
+
+  const scoreOf = (controls) => {
+    let weight = 0;
+    let earned = 0;
+    for (const c of controls) {
+      const w = SEV_WEIGHT[c.severity] ?? 1;
+      weight += w;
+      earned += c.status === "pass" ? w : c.status === "warn" ? w * 0.5 : 0;
+    }
+    return weight > 0 ? Math.round((earned / weight) * 100) : null;
+  };
+
+  const attribution =
+    nowAssessed.size && wasAssessed.size
+      ? {
+          newlyAssessed: [...nowAssessed.keys()].filter((id) => !wasAssessed.has(id)),
+          noLongerAssessed: [...wasAssessed.keys()].filter((id) => !nowAssessed.has(id)),
+          regressed: commonIds.filter((id) => wasAssessed.get(id).status === "pass" && nowAssessed.get(id).status !== "pass"),
+          repaired: commonIds.filter((id) => wasAssessed.get(id).status !== "pass" && nowAssessed.get(id).status === "pass"),
+          common: commonIds.length,
+          // The like-for-like number: both runs restricted to the controls they share.
+          commonScoreNow: scoreOf(commonIds.map((id) => nowAssessed.get(id))),
+          commonScoreBefore: scoreOf(commonIds.map((id) => wasAssessed.get(id))),
+        }
+      : null;
+
   const nowChains = new Set(current.chains ?? []);
   const wasChains = new Set(previous.chains ?? []);
 
@@ -145,6 +188,7 @@ export function deltaAgainstPrevious(history, current) {
     previous,
     comparable,
     caveats,
+    attribution,
     scoreDelta: current.score - previous.score,
     coverageDelta: current.coverage.percent - previous.coverage.percent,
     blockerDelta: current.counts.blockers - previous.counts.blockers,

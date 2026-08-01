@@ -154,6 +154,12 @@ pre { background: var(--chip-bg); padding: 12px 14px; border-radius: 8px; font-s
 .cat-badge { font-size: 11px; background: var(--chip-bg); border: 1px solid var(--line);
   padding: 2px 8px; border-radius: 999px; color: var(--muted); }
 
+/* Sub-kind of a skip or a warning. Deliberately quiet: it qualifies the status badge beside
+   it rather than competing with it. */
+.kind-badge { font-size: 9px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700;
+  padding: 2px 6px; border-radius: 4px; border: 1px dashed var(--line); color: var(--muted);
+  background: transparent; white-space: nowrap; cursor: help; }
+
 .footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line);
   font-size: 11px; color: var(--muted); text-align: center; line-height: 1.8; }
 

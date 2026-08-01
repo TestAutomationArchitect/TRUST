@@ -83,6 +83,36 @@ const shortDate = (iso) => {
   }
 };
 
+
+/**
+ * Why the score moved.
+ *
+ * "▲1" invites the reading that something improved. It might equally mean three new passing
+ * controls were configured, or that a failing one stopped being assessed. This states the
+ * arithmetic in the order a reader cares about — what regressed, what was repaired, what is
+ * simply new — and gives the like-for-like number: the same controls in both runs, scored the
+ * same way. That figure is the only one that can honestly be called progress.
+ */
+function attributionCallout(d) {
+  const a = d.attribution;
+  if (!a || !a.common) return "";
+
+  const commonMove = a.commonScoreNow !== null && a.commonScoreBefore !== null ? a.commonScoreNow - a.commonScoreBefore : null;
+  const parts = [];
+  if (a.regressed.length) parts.push(`<strong>${a.regressed.length} previously passing control(s) regressed</strong> (${esc(a.regressed.slice(0, 4).join(", "))}${a.regressed.length > 4 ? ", …" : ""})`);
+  else parts.push("no previously assessed control regressed");
+  if (a.repaired.length) parts.push(`${a.repaired.length} were repaired (${esc(a.repaired.slice(0, 4).join(", "))}${a.repaired.length > 4 ? ", …" : ""})`);
+  if (a.newlyAssessed.length) parts.push(`${a.newlyAssessed.length} control(s) were assessed for the first time, so their outcomes are discoveries rather than changes`);
+  if (a.noLongerAssessed.length) parts.push(`${a.noLongerAssessed.length} were not assessed this time and are excluded from the comparison`);
+
+  const tone = commonMove !== null && commonMove < 0 ? "callout-warn" : "callout-ok";
+  return `<div class="callout ${tone}"><strong>Why the score moved.</strong> ${parts.join("; ")}.` +
+    (commonMove !== null
+      ? ` Across the <strong>${a.common}</strong> control(s) assessed in both runs — the only like-for-like comparison — the score moved <strong>${commonMove >= 0 ? "+" : ""}${commonMove}</strong> (${a.commonScoreBefore} → ${a.commonScoreNow}).`
+      : "") +
+    `</div>`;
+}
+
 export function renderTrends(model) {
   const { trends } = model;
   if (!trends || !trends.delta) return "";
@@ -139,6 +169,7 @@ export function renderTrends(model) {
         ? ""
         : `<div class="callout callout-warn"><strong>Not directly comparable.</strong> ${esc(d.caveats.join("; "))}. The figures below are shown for continuity, but a change here does not necessarily mean the target changed.</div>`
     }
+${attributionCallout(d)}
 
 <div class="trend-grid">
   <div class="trend-card">

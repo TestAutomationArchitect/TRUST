@@ -537,6 +537,34 @@ profile is worse than no gate. Commit the baseline file; it is a policy record, 
 
 A ready-made GitHub Actions workflow is in [.github/workflows/trust.yml](.github/workflows/trust.yml).
 
+### A skip is never a pass — and now it says why
+
+Three different facts wore one badge. They call for different actions, so they are now
+distinguished on the finding, counted separately in coverage, and stated in the callout:
+
+| Kind | Meaning |
+|---|---|
+| `unconfigured` | Nobody looked — the config does not say where. **The target may well have this problem.** |
+| `not-applicable` | Cannot apply here, or cannot be verified over HTTP at all (certificate pinning needs a device) |
+| `precondition` | The harness looked and could not proceed: an upstream control held, an identity was missing, a guard refused |
+
+Warnings split the same way — `inconclusive` (could not tell), `partial` (the check did not
+finish, so absence proves nothing) and `advisory` (present but weaker than it should be).
+
+This is the answer to the failure mode that would discredit the tool fastest: a team configures
+half of it, sees green, and believes it tested something.
+
+### Debugging one control
+
+```bash
+trust run --config config/dev.json --profile authenticated --only API-CROSS-USER --verbose
+```
+
+`--only` narrows to the probe module that can produce that ID and reports only it — a probe
+suite is the smallest executable unit, so this cannot run half a probe, and it says so rather
+than implying otherwise. `--verbose` traces every guarded request: method, status, duration and
+header **names**. Never header values; a trace is the last place a token should surface.
+
 ### The report reads by control
 
 One control tested in three profiles used to produce three finding cards, three remediation rows

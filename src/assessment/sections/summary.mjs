@@ -48,7 +48,11 @@ ${[...domainScores.entries()]
   <div class="impact-tile" data-tip="Assessed / applicable controls. Skipped and never-run controls are excluded from the score, so coverage must be read alongside it."><div class="impact-count" style="color:${coverage.percent >= 80 ? "var(--ok)" : coverage.percent >= 50 ? "var(--warn)" : "var(--bad)"}">${coverage.percent}%</div><div class="impact-label">Coverage — ${coverage.assessed} of ${coverage.applicable}</div></div>
 </div>
 
-${coverage.partial ? `<div class="callout callout-warn coverage-note"><strong>Read the score with its coverage.</strong> ${coverage.assessed} of ${coverage.applicable} applicable controls reached a verdict (${coverage.percent}%): ${coverage.unvalidated} skipped for missing credentials or unmet preconditions, and ${coverage.notRun} not exercised by the profiles that ran. ${coverage.domainsAssessed} of ${coverage.domainsKnown} trust domains were assessed. The score describes the controls that ran — it is not a statement about the untested remainder.</div>` : ""}
+${coverage.partial ? `<div class="callout callout-warn coverage-note"><strong>Read the score with its coverage.</strong> ${coverage.assessed} of ${coverage.applicable} applicable controls reached a verdict (${coverage.percent}%): ${coverage.unvalidated} skipped, and ${coverage.notRun} not exercised by the profiles that ran. ${coverage.domainsAssessed} of ${coverage.domainsKnown} trust domains were assessed. The score describes the controls that ran — it is not a statement about the untested remainder.${
+    coverage.skipsByKind?.unconfigured
+      ? ` <strong>${coverage.skipsByKind.unconfigured} of the skips were never configured</strong> — nobody looked, so the target may well have those problems. ${coverage.skipsByKind["not-applicable"]} cannot apply here, and ${coverage.skipsByKind.precondition} could not proceed (an upstream control held, or an identity was missing).`
+      : ""
+  }</div>` : ""}
 
 <div class="exec-panel">
   <div class="exec-interp-title">Executive Summary</div>

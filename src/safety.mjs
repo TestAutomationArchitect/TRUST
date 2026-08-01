@@ -176,7 +176,11 @@ export class SafeHttpClient {
   #suiteCounts = new Map();
   #refreshed = new Set();
 
-  constructor(config, { budget = null, credentials = new Map() } = {}) {
+  constructor(config, { budget = null, credentials = new Map(), onRequest = null } = {}) {
+    // Every request already passes through one place, so tracing needs no plumbing anywhere
+    // else — and a trace that only ever sees the guarded path cannot mislead a reader about
+    // what the harness actually sent.
+    this.onRequest = onRequest;
     this.config = config;
     /** Resolved auth strategies, by name. Probes look credentials up here; see auth/index.mjs. */
     this.credentials = credentials;
@@ -284,7 +288,18 @@ export class SafeHttpClient {
 
     const signal = AbortSignal.timeout(this.safety.requestTimeoutMs);
     const headers = applyCredential(auth, { method, url: parsed, headers: fetchInit.headers ?? {}, body: fetchInit.body });
+    const startedAt = Date.now();
     const response = await fetch(parsed.href, { ...fetchInit, headers, method, redirect: "manual", signal });
+    this.onRequest?.({
+      method,
+      url: parsed.href,
+      status: response.status,
+      ms: Date.now() - startedAt,
+      suite: this.#suite,
+      // Header names only. The values carry credentials, and a trace is the last place a token
+      // should surface — the point of it is to show what was sent, not to leak it.
+      headerNames: Object.keys(headers ?? {}),
+    });
 
     // A long agent run outlives a fifteen-minute token, and every probe after expiry would
     // otherwise report the target rejecting valid requests. Refresh once, then believe the 401:

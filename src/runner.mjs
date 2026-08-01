@@ -136,7 +136,30 @@ export function resolveProbes(profileName, customProbes = []) {
  *   probes      extra probes to run, in addition to config.probes
  *   onEvent     ({type, ...}) => void — "advisory" | "module" | "finding" | "module-aborted"
  */
-export async function runProfile({ config, profile, out = "", baseDir = process.cwd(), probes = [], onEvent = () => {}, validate = true } = {}) {
+/**
+ * Which built-in module owns an ID prefix — enough to run one control without running a
+ * profile. A probe suite is the smallest executable unit, so `--only` narrows to the module
+ * that can produce the ID and filters its output; it cannot run half a probe.
+ */
+const MODULE_FOR_PREFIX = [
+  [/^WEB-/, "web"],
+  [/^INJECT-/, "injection"],
+  [/^TOKEN-/, "token"],
+  [/^(API-|SESSION-|AUTH-)/, "api"],
+  [/^STORAGE-/, "storage"],
+  [/^AGENT-/, "agent"],
+  [/^MOBILE-/, "mobile"],
+  [/^IDP-/, "idp"],
+  [/^ISOLATION-/, "isolation"],
+];
+
+/** Modules that could produce an ID matching this pattern. Unknown prefixes run everything. */
+export function modulesFor(pattern) {
+  const matches = MODULE_FOR_PREFIX.filter(([prefix]) => prefix.test(pattern)).map(([, name]) => name);
+  return matches.length ? matches : null;
+}
+
+export async function runProfile({ config, profile, out = "", baseDir = process.cwd(), probes = [], onEvent = () => {}, validate = true, only = "" } = {}) {
   if (!PROFILES[profile] && probes.length === 0 && !(config?.probes ?? []).length) {
     throw new Error(`Unknown profile "${profile}". Choose one of: ${Object.keys(PROFILES).join(", ")}`);
   }
@@ -146,13 +169,19 @@ export async function runProfile({ config, profile, out = "", baseDir = process.
 
   const custom = await loadCustomProbes(config, baseDir);
   for (const extra of probes) applyProbeRegistrations(extra);
-  const selected = resolveProbes(profile, [...custom, ...probes.map(defineProbe)]);
+  let selected = resolveProbes(profile, [...custom, ...probes.map(defineProbe)]);
+  if (only) {
+    // Narrow to the modules that could produce the ID. Custom probes always run, because their
+    // IDs are their own and no prefix map can know them.
+    const wanted = modulesFor(only);
+    if (wanted) selected = selected.filter((p) => wanted.includes(p.name) || !BUILTIN_PROBES.some((b) => b.name === p.name));
+  }
   if (selected.length === 0) throw new Error(`Profile "${profile}" selected no probe modules`);
 
   // The budget depends on the profile: a per-profile cap stops a long web sweep exhausting
   // the run before storage and agent probes execute.
   const budget = resolveBudget(config, profile);
-  const client = new SafeHttpClient(config, { budget });
+  const client = new SafeHttpClient(config, { budget, onRequest: (trace) => onEvent({ type: "request", ...trace }) });
   const startedAt = new Date().toISOString();
   const findings = [];
 
@@ -200,10 +229,14 @@ export async function runProfile({ config, profile, out = "", baseDir = process.
     findings.push(...produced);
   }
 
+  // Filtering happens after execution: a probe suite is the executable unit, so the honest
+  // description is "these are the findings you asked to see", not "this is all that ran".
+  const reported = only ? findings.filter((f) => f.id === only || f.id.startsWith(only)) : findings;
+
   const report = buildRunReport({
     config,
     profile,
-    findings,
+    findings: reported,
     requestCount: client.requestCount,
     blocked: client.blocked,
     budget: { ...budget, spentBySuite: client.suiteSpend },
@@ -214,7 +247,7 @@ export async function runProfile({ config, profile, out = "", baseDir = process.
   });
 
   const paths = out ? await writeRunReport(report, out) : null;
-  const result = { report, findings, summary: summarize(findings), exitCode: exitCodeFor(findings), requestCount: client.requestCount, blocked: client.blocked, paths };
+  const result = { report, findings: reported, summary: summarize(reported), exitCode: exitCodeFor(reported), requestCount: client.requestCount, blocked: client.blocked, paths };
   onEvent({ type: "done", ...result });
   return result;
 }

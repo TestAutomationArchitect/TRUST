@@ -23,6 +23,27 @@ Positioning and robustness, from a second round of partner field testing.
 
 ### Added
 
+- **Skips say why they were skipped.** `unconfigured` means nobody looked — the config does not
+  say where — and the target may well have the problem. `not-applicable` cannot apply here or
+  cannot be checked over HTTP at all. `precondition` means the harness looked and could not
+  proceed. The coverage callout counts them separately, because "we did not configure this" and
+  "this cannot apply" are different debts, and collapsing them is how a run reads as safer than
+  it is. Probes may state the kind; otherwise it is inferred from the reason they already write,
+  defaulting to the cautious `unconfigured`.
+- **Warnings say which kind of warning they are** — `inconclusive` (the harness could not tell),
+  `partial` (the check did not complete, so absence proves nothing) or `advisory` (present but
+  weaker than it should be). Three meanings wore one badge.
+- **`trust run --only <ID>`** narrows to the probe module that could produce that control and
+  reports only it, so debugging one control no longer costs a full profile. **`--verbose`**
+  traces every guarded request — method, status, duration, and header *names* only, because a
+  trace is the last place a token should surface.
+- **The trend explains why the score moved.** "▲1" invites the reading that something improved;
+  it might equally mean three new passing controls were configured. The report now separates
+  what regressed, what was repaired, what was assessed for the first time and what is no longer
+  assessed — and gives the **common-control score**: the same controls in both runs, scored the
+  same way, which is the only genuinely like-for-like comparison available. The trend history
+  records each run's assessed controls to make this possible; identity and status only, never
+  evidence.
 - **The report groups by control.** Cards, remediation and retest deduplicate a control that ran
   in several profiles into one entry, with the executing profiles named on it — a 58-control run
   no longer renders 161 cards. Remediation groups by the *fix* rather than by the finding, so

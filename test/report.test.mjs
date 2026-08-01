@@ -354,3 +354,96 @@ test("a switched scoring unit makes two runs incomparable, and says why", async 
   // would be the most misleading number in the report.
   assert.ok(diff.caveats.some((c) => /scoring unit changed \(execution → control\)/.test(c)));
 });
+
+// ── A skip that means "nobody looked" is not the same fact as one that cannot apply ──
+test("skips carry why they were skipped, and coverage counts the kinds separately", async () => {
+  const { skipped, classifySkip } = await import("../src/finding.mjs");
+  assert.equal(skipped("X", "t", "config.api.endpoint is not configured").skipKind, "unconfigured");
+  assert.equal(skipped("X", "t", "requires a browser: complete the callback").skipKind, "not-applicable");
+  assert.equal(skipped("X", "t", "hierarchy held — the bypass path is not reachable").skipKind, "precondition");
+  // The cautious default: an unrecognised reason counts against coverage rather than being
+  // quietly excused as inapplicable.
+  assert.equal(classifySkip("something nobody anticipated"), "unconfigured");
+  assert.equal(skipped("X", "t", "anything at all", "not-applicable").skipKind, "not-applicable", "a probe that knows can say so");
+
+  const model = buildModel(
+    new Map([
+      ["passive", profileRun("passive", [
+        skipped("API-CROSS-USER", "Cross-user isolation", "config.api.endpoint is not configured"),
+        skipped("MOBILE-CERT-PINNING", "Pinning", "requires an instrumented device: install a proxy CA"),
+        control("WEB-CLICKJACKING", "pass", "medium", "Clickjacking", "Infrastructure"),
+      ])],
+    ]),
+    {},
+  );
+  assert.deepEqual(model.coverage.skipsByKind, { unconfigured: 1, "not-applicable": 1, precondition: 0 });
+});
+
+test("warnings say which kind of warning they are", async () => {
+  const { inconclusive } = await import("../src/finding.mjs");
+  assert.equal(inconclusive("X", "t", "request failed").warnKind, "inconclusive");
+  assert.equal(finding({ id: "X", title: "t", status: "warn", severity: "low", evidence: "weak" }).warnKind, "advisory");
+  assert.equal(finding({ id: "X", title: "t", status: "warn", severity: "low", evidence: "e", warnKind: "partial" }).warnKind, "partial");
+  // Three meanings wore one badge; the card now distinguishes them.
+  const model = buildModel(new Map([["passive", profileRun("passive", [inconclusive("API-QUERY-COST", "Query cost", "ambiguous response")])]]), {});
+  assert.match(model.findingCards, /class="kind-badge"[^>]*>inconclusive</);
+});
+
+test("the trend explains why the score moved, and gives the like-for-like figure", async () => {
+  const { deltaAgainstPrevious } = await import("../src/assessment/trends.mjs");
+  const entry = (runId, score, assessed) => ({
+    runId, at: "2026-07-31T10:00:00.000Z", configHash: "same", catalogHash: "same", profiles: ["authenticated"],
+    scoringUnit: "control", score, readiness: "caution", coverage: { percent: 60, assessed: assessed.length, applicable: 10 },
+    counts: { pass: 1, fail: 1, warn: 0, skip: 0, blockers: 1 }, failingIds: assessed.filter((a) => a.status === "fail").map((a) => a.id),
+    chains: [], assessed,
+  });
+  const diff = deltaAgainstPrevious(
+    { runs: [entry("r1", 50, [{ id: "API-CROSS-USER", status: "fail", severity: "critical" }, { id: "TOKEN-ALG", status: "pass", severity: "high" }])] },
+    entry("r2", 62, [
+      { id: "API-CROSS-USER", status: "pass", severity: "critical" },
+      { id: "TOKEN-ALG", status: "fail", severity: "high" },
+      { id: "WEB-CLICKJACKING", status: "pass", severity: "medium" },
+    ]),
+  );
+
+  // The headline rose 12 points while a control regressed — which is exactly the movement a
+  // bare delta would misrepresent as progress.
+  assert.equal(diff.scoreDelta, 12);
+  assert.deepEqual(diff.attribution.repaired, ["API-CROSS-USER"]);
+  assert.deepEqual(diff.attribution.regressed, ["TOKEN-ALG"]);
+  assert.deepEqual(diff.attribution.newlyAssessed, ["WEB-CLICKJACKING"]);
+  assert.equal(diff.attribution.common, 2, "the like-for-like set excludes the newly assessed control");
+  assert.equal(diff.attribution.commonScoreBefore, 33);
+  assert.equal(diff.attribution.commonScoreNow, 67);
+});
+
+test("--only narrows to the modules that could produce the control", async () => {
+  const { modulesFor } = await import("../src/runner.mjs");
+  assert.deepEqual(modulesFor("API-CROSS-USER"), ["api"]);
+  assert.deepEqual(modulesFor("WEB-HEADER-"), ["web"]);
+  assert.deepEqual(modulesFor("SESSION-LOGOUT"), ["api"]);
+  // A partner ID belongs to no built-in prefix, so nothing is filtered out — narrowing on a
+  // guess would silently skip the module that owns it.
+  assert.equal(modulesFor("ACME-SSO-CLOCK-SKEW"), null);
+});
+
+test("a verbose trace reports the request without its credentials", async () => {
+  const { SafeHttpClient, DEFAULT_SAFETY } = await import("../src/safety.mjs");
+  const traces = [];
+  const client = new SafeHttpClient(
+    { name: "t", environment: "dev", targets: { web: "https://dev.example.com", allowedHosts: ["dev.example.com"] }, safety: { ...DEFAULT_SAFETY, minimumDelayMs: 50 } },
+    { onRequest: (t) => traces.push(t) },
+  );
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => new Response("ok");
+  try {
+    await client.request("https://dev.example.com/x", { headers: { authorization: "Bearer super-secret-token", accept: "application/json" } });
+  } finally {
+    globalThis.fetch = original;
+  }
+  assert.equal(traces.length, 1);
+  assert.equal(traces[0].status, 200);
+  assert.deepEqual(traces[0].headerNames.sort(), ["accept", "authorization"]);
+  // Header names, never values — a trace is the last place a token should surface.
+  assert.equal(JSON.stringify(traces[0]).includes("super-secret-token"), false);
+});

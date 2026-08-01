@@ -100,7 +100,7 @@ function stringify(value) {
  *   severity  the impact IF this control fails. It is a property of the control, not of
  *             the outcome, which is why a passing test can legitimately be `critical`.
  */
-export function finding({ id, title, status, severity = "info", evidence = "", remediation = "", observed = "", domain = "", category = "", activatedBy = "" }) {
+export function finding({ id, title, status, severity = "info", evidence = "", remediation = "", observed = "", domain = "", category = "", activatedBy = "", skipKind = "", warnKind = "" }) {
   if (!id) throw new TypeError("finding.id is required");
   if (!title) throw new TypeError(`finding.title is required (id=${id})`);
   if (!STATUSES.includes(status)) {
@@ -131,6 +131,11 @@ export function finding({ id, title, status, severity = "info", evidence = "", r
     // into the run JSON so the report can narrate an executed attack path rather than
     // presenting two findings that happen to be adjacent.
     ...(activatedBy ? { activatedBy } : {}),
+    // Why this control was not assessed, or could not be confirmed. A skip that means "nobody
+    // looked" and one that means "this cannot apply here" are different facts about coverage,
+    // and collapsing them is how a run reads as safer than it is.
+    ...(status === "skip" ? { skipKind: SKIP_KINDS.includes(skipKind) ? skipKind : classifySkip(evidence) } : {}),
+    ...(status === "warn" ? { warnKind: WARN_KINDS.includes(warnKind) ? warnKind : "advisory" } : {}),
   };
 }
 
@@ -149,14 +154,56 @@ export function headline(f) {
   return f.title;
 }
 
-/** A test that could not run. Severity is always info — a skip is not a verdict. */
-export function skipped(id, title, reason) {
-  return finding({ id, title, status: "skip", severity: "info", evidence: `Skipped: ${reason}` });
+/**
+ * Why a control was not assessed. The distinction is the whole point:
+ *
+ *   unconfigured    the target may well have this problem — nobody looked, because the config
+ *                   does not say where to look. This is the one that produces false confidence,
+ *                   and the reason it is counted and surfaced separately.
+ *   not-applicable  the control cannot apply here, or cannot be verified over HTTP at all
+ *                   (certificate pinning needs a device). Excluding it is honest.
+ *   precondition    the harness looked and could not proceed — an upstream control held, a
+ *                   second identity was absent, a guard refused. A statement about the run.
+ */
+export const SKIP_KINDS = ["unconfigured", "not-applicable", "precondition"];
+
+const SKIP_PATTERNS = [
+  [/\b(is not configured|is not defined|not set in the environment|is not set|is empty|no .* configured)\b/i, "unconfigured"],
+  [/\b(requires a browser|requires an instrumented device|cannot be verified|manual|out of scope)\b/i, "not-applicable"],
+  [/\b(held|not reachable|needs a second identity|disabled|refused|budget|already covered|did not resolve|could not be discovered)\b/i, "precondition"],
+];
+
+/**
+ * Classify a skip from its reason when a probe did not say.
+ *
+ * Inference rather than a mandatory argument, because a hundred call sites forced to restate
+ * something their own wording already carries would drift out of step with it. A probe that
+ * cares passes the kind explicitly; the default is `unconfigured`, which is the cautious end —
+ * it counts against coverage and is surfaced rather than quietly excused.
+ */
+export function classifySkip(reason) {
+  for (const [pattern, kind] of SKIP_PATTERNS) if (pattern.test(reason)) return kind;
+  return "unconfigured";
 }
+
+/** A test that could not run. Severity is always info — a skip is not a verdict. */
+export function skipped(id, title, reason, kind = "") {
+  const skipKind = SKIP_KINDS.includes(kind) ? kind : classifySkip(String(reason));
+  return finding({ id, title, status: "skip", severity: "info", evidence: `Skipped: ${reason}`, skipKind });
+}
+
+/**
+ * Why a control could not be confirmed. Three different things wore one badge:
+ *
+ *   inconclusive  the harness could not tell — a request failed, a response was ambiguous
+ *   partial       the check ran but did not complete, so absence of a hit proves nothing
+ *   advisory      the control is present but weaker than it should be; nothing is broken
+ */
+export const WARN_KINDS = ["inconclusive", "partial", "advisory"];
 
 /** A test that could not reach a verdict (network error, ambiguous response). */
 export function inconclusive(id, title, reason, remediation = "Re-run once the precondition is met, or verify manually.") {
-  return finding({ id, title, status: "warn", severity: "low", evidence: reason, remediation });
+  return finding({ id, title, status: "warn", severity: "low", evidence: reason, remediation, warnKind: "inconclusive" });
 }
 
 /**

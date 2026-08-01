@@ -407,6 +407,9 @@ export async function runApiProbes(config, client) {
       // A sweep that stopped early cannot claim the control holds. The status scale already has
         // a word for that: WARN is "could not be fully validated".
         status: specsOnly.length || inventorySweep === "partial" ? "warn" : "pass",
+      // "Found something" and "could not finish looking" are different warnings, and a reader
+      // deciding what to do next needs to know which one this is.
+      warnKind: specsOnly.length ? "advisory" : "partial",
       severity: "low",
       evidence: exposedSpecs.length
         ? exposedSpecs.map((s) => `${s.path} → HTTP 200: ${s.snippet}`).join("\n") +

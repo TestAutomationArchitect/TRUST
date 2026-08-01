@@ -44,10 +44,12 @@ const USAGE = `${TOOL.name} ${TOOL.version} — ${TOOL.tagline}
                 scaffold config/<env>.json, .env.example and an example probe
 
   trust run     --config <path> --profile <${Object.keys(PROFILES).join("|")}>
-                [--out reports] [--dry-run] [--quiet]
+                [--out reports] [--dry-run] [--quiet] [--only <ID>] [--verbose]
                 [--baseline <file>] [--sarif <file>] [--junit <file>]
                 run a profile, write JSON + HTML, exit 2 on a blocking failure
-                (with --baseline, only on a blocking failure that is *new*)
+                (with --baseline, only on a blocking failure that is *new*).
+                --only <ID> narrows to the module that can produce that control
+                and reports only it; --verbose traces every guarded request
 
   trust report  [--dir reports] [--out <file.html>] [--title <text>]
                 [--trends-dir .trends] [--no-trends] [--score-by control|execution]
@@ -104,6 +106,8 @@ export function parseArgs(argv) {
     junit: "",
     note: "",
     scoreBy: process.env.TRUST_SCORE_BY || "execution",
+    only: "",
+    verbose: false,
     noEnv: false,
     noTrends: false,
     offline: false,
@@ -142,6 +146,8 @@ export function parseArgs(argv) {
       case "--sarif": opts.sarif = next(); break;
       case "--junit": opts.junit = next(); break;
       case "--note": opts.note = next(); break;
+      case "--only": case "--probe": opts.only = next(); break;
+      case "--verbose": case "-v-": opts.verbose = true; break;
       case "--score-by": {
         opts.scoreBy = next();
         if (!["control", "execution"].includes(opts.scoreBy)) throw new ConfigError(`--score-by must be "control" or "execution", got "${opts.scoreBy}"`);
@@ -238,13 +244,20 @@ async function commandRun(opts) {
     return 0;
   }
 
+  if (opts.only) log(paint(90, `  only     ${opts.only} — modules that cannot produce this ID are skipped`));
+
   const result = await runProfile({
     config,
     profile: opts.profile,
     out: opts.out || "reports",
     baseDir: path.dirname(path.resolve(opts.config)),
+    only: opts.only,
     validate: false, // already validated, so advisories are not printed twice
     onEvent: (event) => {
+      if (event.type === "request" && opts.verbose) {
+        // Header names, never values: a trace is the last place a token should surface.
+        log(paint(90, `    → ${event.method.padEnd(6)} ${String(event.status).padStart(3)}  ${event.ms}ms  ${event.url}  [${event.headerNames.join(", ")}]`));
+      }
       if (event.type === "module") log(paint(90, `\n▸ ${event.label}`));
       else if (event.type === "module-aborted") log(paint(31, `  safety guard stopped ${event.name}: ${event.message}`));
       else if (event.type === "finding" && !opts.quiet) {
