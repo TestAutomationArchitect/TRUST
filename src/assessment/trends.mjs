@@ -54,6 +54,10 @@ export function trendEntry(model, reports) {
     configHash: first.configHash ?? null,
     catalogHash: first.catalogHash ?? null,
     profiles: [...reports.keys()].sort(),
+    // Two runs scored by different units are not comparable, and a silent switch would show up
+    // as a score movement nobody made. Recorded so the delta can say so.
+    scoringUnit: model.unitCounts?.unit ?? "execution",
+    controls: model.unitCounts?.controls ?? null,
     score: model.overallScore,
     readiness: model.readiness,
     coverage: { percent: model.coverage.percent, assessed: model.coverage.assessed, applicable: model.coverage.applicable },
@@ -109,11 +113,15 @@ export function deltaAgainstPrevious(history, current) {
   const fixed = [...wasFailing].filter((id) => !nowFailing.has(id));
   const persisting = [...nowFailing].filter((id) => wasFailing.has(id));
 
-  // A changed config or catalogue makes the two runs measure different things.
-  const comparable = previous.configHash === current.configHash && previous.catalogHash === current.catalogHash;
+  // A changed config, catalogue or scoring unit makes the two runs measure different things.
+  const sameUnit = (previous.scoringUnit ?? "execution") === (current.scoringUnit ?? "execution");
+  const comparable = previous.configHash === current.configHash && previous.catalogHash === current.catalogHash && sameUnit;
   const caveats = [];
   if (previous.configHash !== current.configHash) caveats.push("the configuration changed between runs");
   if (previous.catalogHash !== current.catalogHash) caveats.push("the control catalogue changed between runs");
+  // A switched scoring unit moves the score without anything about the system changing, which
+  // is the most misleading delta this report could show if it went unsaid.
+  if (!sameUnit) caveats.push(`the scoring unit changed (${previous.scoringUnit ?? "execution"} → ${current.scoringUnit ?? "execution"}), so the score movement reflects the change of unit, not the target`);
   if (String(previous.profiles) !== String(current.profiles)) caveats.push(`different profiles ran (${previous.profiles.join(", ")} → ${current.profiles.join(", ")})`);
 
   const nowChains = new Set(current.chains ?? []);

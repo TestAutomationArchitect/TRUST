@@ -214,3 +214,108 @@ test("an unclassified finding still falls back to the catalogue", () => {
   const run = makeRun("authenticated", [builtin]);
   assert.equal(run.findings[0].domain, "Authorization", "the catalogue fills it in at run time");
 });
+
+// ── The control, not the execution, is the unit ─────────────────────
+const control = (id, status, severity, category = "Token Hygiene", domain = "Authentication") =>
+  finding({ id, title: `${id} holds`, status, severity, evidence: "evidence", remediation: "fix", category, domain });
+
+const profileRun = (profile, findings) => ({
+  profile,
+  name: "unit",
+  target: "https://dev.example.com",
+  environment: "dev",
+  surfaces: [{ kind: "api", label: "API", target: "https://dev.example.com/graphql" }],
+  startedAt: "2026-07-31T10:00:00.000Z",
+  generatedAt: "2026-07-31T10:05:00.000Z",
+  summary: {},
+  findings,
+});
+
+test("collapseToControls keeps the worst outcome and records every profile that ran it", async () => {
+  const { collapseToControls } = await import("../src/assessment/model.mjs");
+  const collapsed = collapseToControls([
+    { ...control("API-CROSS-USER", "pass", "critical"), profile: "passive" },
+    { ...control("API-CROSS-USER", "fail", "critical"), profile: "authenticated" },
+    { ...control("TOKEN-ALG", "pass", "high"), profile: "passive" },
+  ]);
+
+  assert.equal(collapsed.length, 2);
+  const cross = collapsed.find((c) => c.id === "API-CROSS-USER");
+  // A control that failed in one profile and passed in another has not held.
+  assert.equal(cross.status, "fail");
+  assert.deepEqual(cross.profiles, ["passive", "authenticated"]);
+  // The collapse must not hide the disagreement that motivated it.
+  assert.match(cross.evidence, /Across profiles: passive pass, authenticated fail/);
+  assert.equal(collapsed.find((c) => c.id === "TOKEN-ALG").evidence.includes("Across profiles"), false, "a control with one outcome needs no note");
+});
+
+test("scoring by execution lets an extra profile raise the score; by control it cannot", () => {
+  const reports = (extraProfiles) => {
+    const map = new Map([["authenticated", profileRun("authenticated", [control("TOKEN-ALG", "pass", "high"), control("API-CROSS-USER", "fail", "critical", "Authorization — API", "Authorization")])]]);
+    for (const p of extraProfiles) map.set(p, profileRun(p, [control("TOKEN-ALG", "pass", "high")]));
+    return map;
+  };
+
+  const byExecution = (extra) => buildModel(reports(extra), { scoreBy: "execution" });
+  const byControl = (extra) => buildModel(reports(extra), { scoreBy: "control" });
+
+  // Nothing is fixed between these two runs — a passing control is simply executed in more
+  // profiles. Under execution scoring that moves the headline number, which means a team can
+  // raise its posture without touching its system.
+  assert.ok(byExecution(["agent", "all"]).overallScore > byExecution([]).overallScore, "execution scoring rewards re-execution");
+  assert.equal(byControl(["agent", "all"]).overallScore, byControl([]).overallScore, "control scoring does not");
+  assert.equal(byControl([]).coverage.percent, byControl(["agent", "all"]).coverage.percent, "and neither does coverage");
+});
+
+test("the model reports both units so coverage cannot be overstated", () => {
+  const model = buildModel(
+    new Map([
+      ["authenticated", profileRun("authenticated", [control("TOKEN-ALG", "pass", "high"), control("API-CROSS-USER", "fail", "critical")])],
+      ["agent", profileRun("agent", [control("TOKEN-ALG", "pass", "high")])],
+    ]),
+    {},
+  );
+  assert.deepEqual(model.unitCounts, { controls: 2, executions: 3, unit: "execution" });
+});
+
+test("control mode emits one card per control, carrying the profiles that confirmed it", () => {
+  const reports = new Map([
+    ["authenticated", profileRun("authenticated", [control("TOKEN-ALG", "pass", "high")])],
+    ["agent", profileRun("agent", [control("TOKEN-ALG", "pass", "high")])],
+  ]);
+  const cardsIn = (html) => [...html.matchAll(/<summary class="finding-sum">([\s\S]*?)<\/summary>/g)].map((m) => m[1]);
+
+  const executions = cardsIn(buildReport(reports, { scoreBy: "execution" }));
+  const controls = cardsIn(buildReport(reports, { scoreBy: "control" }));
+  assert.equal(executions.length, 2, "one card per execution today");
+  assert.equal(controls.length, 1, "one card per control");
+  // Deduplication must not cost the reader the profile attribution it replaces.
+  assert.equal((controls[0].match(/env-badge/g) ?? []).length, 2);
+  assert.match(controls[0], /authenticated/);
+  assert.match(controls[0], /agent/);
+});
+
+test("the report states which unit it scored by, and the formula", () => {
+  const reports = new Map([["authenticated", profileRun("authenticated", [control("TOKEN-ALG", "pass", "high")])]]);
+  const byExecution = buildReport(reports, { scoreBy: "execution" });
+  assert.match(byExecution, /This report scores <strong>by execution<\/strong>/);
+  assert.match(byExecution, /--score-by control/, "and points at the honest alternative");
+  assert.match(buildReport(reports, { scoreBy: "control" }), /This report scores <strong>by control<\/strong>/);
+  // A number with no stated derivation invites the distrust the report exists to remove.
+  assert.match(byExecution, /score = Σ\(weight × outcome\) ÷ Σ\(weight\) × 100/);
+});
+
+test("a switched scoring unit makes two runs incomparable, and says why", async () => {
+  const { deltaAgainstPrevious } = await import("../src/assessment/trends.mjs");
+  const entry = (scoringUnit, score) => ({
+    runId: `r-${scoringUnit}`, at: "2026-07-31T10:00:00.000Z", configHash: "same", catalogHash: "same",
+    profiles: ["authenticated"], scoringUnit, score, readiness: "caution",
+    coverage: { percent: 50, assessed: 5, applicable: 10 },
+    counts: { pass: 5, fail: 1, warn: 0, skip: 0, blockers: 0 }, failingIds: ["API-CROSS-USER"], chains: [],
+  });
+  const diff = deltaAgainstPrevious({ runs: [entry("execution", 79)] }, entry("control", 61));
+  assert.equal(diff.comparable, false);
+  // An 18-point drop that came from changing the unit, presented as progress or regression,
+  // would be the most misleading number in the report.
+  assert.ok(diff.caveats.some((c) => /scoring unit changed \(execution → control\)/.test(c)));
+});

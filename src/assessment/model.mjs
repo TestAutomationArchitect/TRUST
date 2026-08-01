@@ -12,8 +12,60 @@ import { computeScores } from "./scoring.mjs";
 import { esc, severityBadge, statusCls, ownerFor } from "./html.mjs";
 import { headline } from "../finding.mjs";
 
-/** Derive the model. `title` overrides the assessment name taken from the run. */
-export function buildModel(reports, { title = "" } = {}) {
+/** Worst status wins when the same control is executed in more than one profile. */
+const STATUS_RANK = { fail: 0, warn: 1, pass: 2, skip: 3 };
+
+/**
+ * Collapse executions into controls.
+ *
+ * The same control runs in several profiles — token hygiene runs in three — and until now the
+ * model counted each execution separately. That inflated the card list, and worse, it weighted
+ * the posture score and the coverage percentage by how many profiles a control happened to
+ * appear in: a passing control executed three times contributed three times the weight of one
+ * executed once. A team could raise its score by adding a profile.
+ *
+ * The control is the honest unit. Worst status wins, every profile that executed it is
+ * recorded, and the differing outcomes are kept in the evidence so nothing is hidden by the
+ * collapse.
+ */
+export function collapseToControls(executions) {
+  const byId = new Map();
+  for (const execution of executions) {
+    const existing = byId.get(execution.id);
+    if (!existing) {
+      byId.set(execution.id, { ...execution, profiles: [execution.profile], executions: [{ profile: execution.profile, status: execution.status }] });
+      continue;
+    }
+    if (!existing.profiles.includes(execution.profile)) existing.profiles.push(execution.profile);
+    existing.executions.push({ profile: execution.profile, status: execution.status });
+    if (STATUS_RANK[execution.status] < STATUS_RANK[existing.status]) {
+      // Keep the worst outcome and the evidence that produced it — a control that failed in one
+      // profile and passed in another has not held.
+      Object.assign(existing, execution, { profiles: existing.profiles, executions: existing.executions });
+    }
+  }
+
+  for (const control of byId.values()) {
+    const outcomes = new Set(control.executions.map((e) => e.status));
+    if (outcomes.size > 1) {
+      // A control that behaved differently per profile is the interesting case, so it is stated
+      // rather than silently reduced to its worst run.
+      control.evidence = `${control.evidence}
+
+Across profiles: ${control.executions.map((e) => `${e.profile} ${e.status}`).join(", ")}`;
+    }
+  }
+  return [...byId.values()];
+}
+
+/**
+ * Derive the model.
+ *
+ *   title    overrides the assessment name taken from the run
+ *   scoreBy  "control" counts each control once; "execution" counts every profile run of it,
+ *            which is the 1.x default because changing it changes published scores
+ */
+export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) {
   const first = reports.values().next().value ?? {};
   const assessmentName = title || `${first.name ?? "Target"} — Security Trust Assessment`;
   const target = first.target ?? "Unknown";
@@ -29,10 +81,16 @@ export function buildModel(reports, { title = "" } = {}) {
     return f.category ? { ...meta, category: f.category } : meta;
   };
 
-  const allFindings = [];
+  const executions = [];
   for (const [profile, data] of reports) {
-    for (const f of data.findings) allFindings.push({ ...f, profile });
+    for (const f of data.findings) executions.push({ ...f, profile });
   }
+  // Every fragment below derives from allFindings, so choosing the unit here is what makes the
+  // whole report — cards, scoring, coverage, remediation, retest, inventory — consistent.
+  const controls = collapseToControls(executions);
+  const byControl = scoreBy === "control";
+  const allFindings = byControl ? controls : executions;
+  const unitCounts = { controls: controls.length, executions: executions.length, unit: byControl ? "control" : "execution" };
 
   const fails = allFindings.filter((f) => f.status === "fail");
   const warns = allFindings.filter((f) => f.status === "warn");
@@ -78,6 +136,7 @@ export function buildModel(reports, { title = "" } = {}) {
     <span class="tag ${statusCls(f.status)}">${f.status.toUpperCase()}</span>
     ${severityBadge(f.severity, f.status)}
     <span class="finding-name">${esc(headline(f))}</span>
+    ${(f.profiles ?? [f.profile]).filter(Boolean).map((p) => `<span class="env-badge">${esc(p)}</span>`).join(" ")}
     <span class="finding-id-tag">${esc(f.id)}</span>
   </summary>
   <div class="finding-body">
@@ -537,6 +596,9 @@ export function buildModel(reports, { title = "" } = {}) {
     execSynopsis,
     rootCauseRows,
     trustVerifiedItems,
+    unitCounts,
+    executions,
+    controls,
     profileRows,
     profileScopeRows,
     remediationRows,

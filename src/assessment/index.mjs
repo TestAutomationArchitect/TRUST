@@ -65,18 +65,18 @@ export async function loadReports(dir) {
 }
 
 /** Compose the HTML document from a map of profile → run JSON. */
-export function buildReport(reports, { title = "", trends = null } = {}) {
-  const model = { ...buildModel(reports, { title }), trends };
+export function buildReport(reports, { title = "", trends = null, scoreBy = "execution" } = {}) {
+  const model = { ...buildModel(reports, { title, scoreBy }), trends };
   return renderHead(model) + SECTIONS.map((render) => render(model)).join("\n\n") + renderFoot(model);
 }
 
 /** Read every run, build the assessment and write it. Returns the path written. */
-export async function writeCombinedReport({ dir = "reports", out = "", title = "", noTrends = false, trendsDir = DEFAULT_TRENDS_DIR } = {}) {
+export async function writeCombinedReport({ dir = "reports", out = "", title = "", noTrends = false, trendsDir = DEFAULT_TRENDS_DIR, scoreBy = "execution" } = {}) {
   const reports = await loadReports(dir);
   if (reports.size === 0) throw new Error(`No TRUST JSON reports found in ${dir}`);
   // The run is appended to its history before rendering, so the delta compares it with the
   // previous run rather than with itself, and a regenerated report does not add a point.
-  const model = buildModel(reports, { title });
+  const model = buildModel(reports, { title, scoreBy });
   const entry = trendEntry(model, reports);
   // 1.1 wrote history into the reports directory. Adopt it once if it is still there, so an
   // early adopter does not silently lose their series.
@@ -104,9 +104,9 @@ export async function writeCombinedReport({ dir = "reports", out = "", title = "
         domainSeries: Object.fromEntries(diff.domains.map((dom) => [dom.name, domainSeries(history, dom.name)])),
       }
     : null;
-  const html = buildReport(reports, { title, trends });
+  const html = buildReport(reports, { title, trends, scoreBy });
   const outPath = out || path.join(path.resolve(dir), `trust-assessment-${new Date().toISOString().slice(0, 10)}.html`);
   await mkdir(path.dirname(outPath), { recursive: true });
   await writeFile(outPath, html, { mode: 0o600 });
-  return { outPath, profiles: [...reports.keys()], html, trendsDir };
+  return { outPath, profiles: [...reports.keys()], html, trendsDir, unitCounts: model.unitCounts };
 }

@@ -50,9 +50,11 @@ const USAGE = `${TOOL.name} ${TOOL.version} — ${TOOL.tagline}
                 (with --baseline, only on a blocking failure that is *new*)
 
   trust report  [--dir reports] [--out <file.html>] [--title <text>]
-                [--trends-dir .trends] [--no-trends]
+                [--trends-dir .trends] [--no-trends] [--score-by control|execution]
                 [--baseline <file>] [--sarif <file>] [--junit <file>]
-                merge the latest run per profile into one Trust Assessment
+                merge the latest run per profile into one Trust Assessment.
+                --score-by control counts each control once however many profiles
+                executed it; the 1.x default counts every execution
 
   Secrets: .env in the working directory is loaded automatically (real environment
   variables always win). Override with --dotenv <path>, disable with --no-env.
@@ -101,6 +103,7 @@ export function parseArgs(argv) {
     sarif: "",
     junit: "",
     note: "",
+    scoreBy: process.env.TRUST_SCORE_BY || "execution",
     noEnv: false,
     noTrends: false,
     offline: false,
@@ -139,6 +142,11 @@ export function parseArgs(argv) {
       case "--sarif": opts.sarif = next(); break;
       case "--junit": opts.junit = next(); break;
       case "--note": opts.note = next(); break;
+      case "--score-by": {
+        opts.scoreBy = next();
+        if (!["control", "execution"].includes(opts.scoreBy)) throw new ConfigError(`--score-by must be "control" or "execution", got "${opts.scoreBy}"`);
+        break;
+      }
       case "--force": opts.force = true; break;
       case "--no-probe": opts.withProbe = false; break;
       case "--json": opts.json = true; break;
@@ -381,8 +389,16 @@ async function commandTokens(opts) {
 }
 
 async function commandReport(opts) {
-  const { outPath, profiles, trendsDir } = await writeCombinedReport({ dir: opts.dir, out: opts.out, title: opts.title, noTrends: opts.noTrends, trendsDir: opts.trendsDir });
+  const { outPath, profiles, trendsDir, unitCounts } = await writeCombinedReport({ dir: opts.dir, out: opts.out, title: opts.title, noTrends: opts.noTrends, trendsDir: opts.trendsDir, scoreBy: opts.scoreBy });
   log(`Merged ${profiles.length} profile(s): ${profiles.join(", ")}`);
+  if (unitCounts) {
+    log(
+      opts.scoreBy === "control"
+        ? paint(90, `  scoring  by control — ${unitCounts.controls} controls, ${unitCounts.executions} executions`)
+        : paint(90, `  scoring  by execution — ${unitCounts.executions} executions across ${unitCounts.controls} controls. ` +
+            `A control run in several profiles is weighted once per run; --score-by control counts it once`),
+    );
+  }
   if (!opts.noTrends) log(paint(90, `  history  ${trendsDir}/trends.json — restore and persist this in CI, or every run looks like the first`));
 
   // Exporting from `report` covers every profile at once, which is what a CI job wants to

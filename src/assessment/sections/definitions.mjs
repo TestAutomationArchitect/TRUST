@@ -35,7 +35,7 @@ export function renderDefinitions(model) {
   const scoring = group("Posture Score", [
     [
       "Composite (0–100)",
-      "Weighted pass rate across all domains. Pass earns 100% of a test's severity weight, warn 50%, fail 0%. Skipped tests are excluded from both numerator and denominator, so an unvalidated control can never inflate the score." +
+      "Weighted pass rate across all domains: <code>score = Σ(weight × outcome) ÷ Σ(weight) × 100</code>, where outcome is 1 for pass, 0.5 for warn and 0 for fail. Skipped tests are excluded from both numerator and denominator, so an unvalidated control can never inflate the score." +
         '<div class="score-scale"><span class="sev-critical">Critical 10</span><span class="sev-high">High 5</span><span class="sev-med">Medium 3</span><span class="sev-low">Low 1</span><span class="sev-info">Info 0.5</span></div>',
     ],
     ["Domain Score", "The same formula applied per domain. Domains are ordered worst-first, because a strong composite hides a weak area."],
@@ -47,6 +47,14 @@ export function renderDefinitions(model) {
     [
       "Bands do not decide readiness",
       "Deployment readiness is calculated independently: any critical or high-severity failure yields <strong>Not Ready</strong> regardless of the score. A report can score in the moderate band and still be blocked.",
+    ],
+    [
+      "Scoring unit",
+      (model.unitCounts?.unit === "control"
+        ? "This report scores <strong>by control</strong>: a control executed in several profiles counts once, at its worst outcome."
+        : "This report scores <strong>by execution</strong>: a control executed in several profiles counts once per execution, so a control that runs in more profiles carries more weight. " +
+          "Run <code>trust report --score-by control</code> for the control-weighted figure, which is the unit this assessment is moving to.") +
+        (model.unitCounts ? ` This run covered <strong>${model.unitCounts.controls}</strong> control(s) across <strong>${model.unitCounts.executions}</strong> execution(s).` : ""),
     ],
   ]);
 

@@ -537,6 +537,34 @@ profile is worse than no gate. Commit the baseline file; it is a policy record, 
 
 A ready-made GitHub Actions workflow is in [.github/workflows/trust.yml](.github/workflows/trust.yml).
 
+### Scoring: controls, not executions
+
+A control that runs in several profiles — token hygiene runs in three — used to be counted once
+per execution, and both the posture score and coverage were weighted that way. That let a run
+improve by adding a profile:
+
+| | Score | Coverage |
+|---|---|---|
+| Scored by execution (1.x default) | 79 | 22% |
+| Scored by control, same runs | **61** | **13%** |
+
+Nothing about the target differs between those two rows. The second is the honest one, and it is
+what `--score-by control` reports:
+
+```bash
+trust report --dir reports --score-by control
+```
+
+A control is counted once, at its **worst** outcome across profiles — a boundary that failed in
+one profile and passed in another has not held — and the profiles that executed it are listed on
+the finding, so deduplication does not cost the attribution it replaces. Where outcomes differed,
+the evidence says so.
+
+This is not the default in 1.x because changing it changes every published score, and finding
+verdicts are a [public API](#versioning). It becomes the default in 2.0. Switching units is
+recorded in the trend history, so a run scored one way and compared against a run scored the
+other is flagged as not comparable rather than reported as an improvement.
+
 ### Trends and history
 
 `trust report` records each run in `.trends/trends.json` and renders a Trends section once

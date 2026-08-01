@@ -21,6 +21,20 @@ Positioning and robustness, from a second round of partner field testing.
 - **Determinism is defined for stochastic targets.** An LLM agent is not deterministic; the
   *decision rule* is — a fixed number of attempts, and a canary in any of them is a failure.
 
+### Added
+
+- **`trust report --score-by control`.** A control executed in several profiles is counted once,
+  at its worst outcome, with the executing profiles listed on the finding and any disagreement
+  between them kept in the evidence. This fixes a real defect in the headline number: scoring and
+  coverage counted *executions*, so a control that ran in three profiles carried three times the
+  weight of one that ran in one, and a team could raise its score by adding a profile. On a
+  representative run the difference is 79 → 61 for the score and 22% → 13% for coverage.
+
+  Not the default in 1.x, because changing it changes every published score and finding verdicts
+  are part of the public API. It becomes the default in 2.0. A switched unit is recorded in the
+  trend history and marks the two runs incomparable, so the movement is never presented as
+  progress. The report now also states which unit it scored by, and the formula it used.
+
 ### Fixed
 
 - **A probe module that threw destroyed the entire run.** Only `SafetyError` was caught, so any
