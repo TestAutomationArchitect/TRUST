@@ -23,6 +23,13 @@ Positioning and robustness, from a second round of partner field testing.
 
 ### Added
 
+- **The report groups by control.** Cards, remediation and retest deduplicate a control that ran
+  in several profiles into one entry, with the executing profiles named on it — a 58-control run
+  no longer renders 161 cards. Remediation groups by the *fix* rather than by the finding, so
+  seven controls that close with one configuration change are one row saying "closes 7 controls"
+  instead of seven identical ones. The inventory stays per-execution, because it is the ledger
+  and its profile column is its purpose. None of this changes a verdict, so it is not behind a
+  flag — the readability fix should not require accepting a score change.
 - **`trust report --score-by control`.** A control executed in several profiles is counted once,
   at its worst outcome, with the executing profiles listed on the finding and any disagreement
   between them kept in the evidence. This fixes a real defect in the headline number: scoring and

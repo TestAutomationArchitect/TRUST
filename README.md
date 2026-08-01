@@ -537,6 +537,21 @@ profile is worse than no gate. Commit the baseline file; it is a policy record, 
 
 A ready-made GitHub Actions workflow is in [.github/workflows/trust.yml](.github/workflows/trust.yml).
 
+### The report reads by control
+
+One control tested in three profiles used to produce three finding cards, three remediation rows
+and three retest rows. A 58-control run rendered 161 cards. The narrative sections now group by
+control — cards, remediation and retest — with the profiles that executed each control shown on
+its card, and any disagreement between them kept in the evidence. On a representative run that
+halves the report without removing a single fact from it.
+
+Remediation groups by **the fix**, not by the finding: seven header controls that all close with
+one change to the CDN configuration are one row that says "closes 7 controls", because they are
+one ticket. The inventory deliberately stays per-execution — it is the searchable ledger, and its
+profile column is the point of it.
+
+None of that changes a verdict, so it needs no flag. Scoring is the part that does:
+
 ### Scoring: controls, not executions
 
 A control that runs in several profiles — token hygiene runs in three — used to be counted once

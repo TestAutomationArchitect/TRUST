@@ -278,21 +278,56 @@ test("the model reports both units so coverage cannot be overstated", () => {
   assert.deepEqual(model.unitCounts, { controls: 2, executions: 3, unit: "execution" });
 });
 
-test("control mode emits one card per control, carrying the profiles that confirmed it", () => {
+test("the report reads one card per control whatever the score is computed over", () => {
   const reports = new Map([
     ["authenticated", profileRun("authenticated", [control("TOKEN-ALG", "pass", "high")])],
     ["agent", profileRun("agent", [control("TOKEN-ALG", "pass", "high")])],
   ]);
   const cardsIn = (html) => [...html.matchAll(/<summary class="finding-sum">([\s\S]*?)<\/summary>/g)].map((m) => m[1]);
 
-  const executions = cardsIn(buildReport(reports, { scoreBy: "execution" }));
-  const controls = cardsIn(buildReport(reports, { scoreBy: "control" }));
-  assert.equal(executions.length, 2, "one card per execution today");
-  assert.equal(controls.length, 1, "one card per control");
-  // Deduplication must not cost the reader the profile attribution it replaces.
-  assert.equal((controls[0].match(/env-badge/g) ?? []).length, 2);
-  assert.match(controls[0], /authenticated/);
-  assert.match(controls[0], /agent/);
+  // Deduplicating what a reader reads changes no verdict, so it is not gated behind the scoring
+  // flag — otherwise the readability fix would only reach teams willing to accept a score change.
+  for (const scoreBy of ["execution", "control"]) {
+    const cards = cardsIn(buildReport(reports, { scoreBy }));
+    assert.equal(cards.length, 1, `one card per control (scoreBy=${scoreBy})`);
+    // And deduplication must not cost the attribution it replaces.
+    assert.equal((cards[0].match(/env-badge/g) ?? []).length, 2);
+    assert.match(cards[0], /authenticated/);
+    assert.match(cards[0], /agent/);
+  }
+});
+
+test("remediation groups by the fix, listing every control that fix closes", () => {
+  const headerFix = "Add the response headers at the CDN.";
+  const withFix = (id, remediation) => finding({ id, title: `${id} holds`, status: "fail", severity: "medium", evidence: "missing", remediation, category: "Web Hardening", domain: "Infrastructure" });
+  const reports = new Map([
+    ["passive", profileRun("passive", [
+      withFix("WEB-HEADER-STRICT-TRANSPORT-SECURITY", headerFix),
+      withFix("WEB-HEADER-CONTENT-SECURITY-POLICY", headerFix),
+      withFix("WEB-HEADER-REFERRER-POLICY", headerFix),
+      withFix("API-QUERY-COST", "Add a query depth limit."),
+    ])],
+  ]);
+  const model = buildModel(reports, {});
+
+  // Three controls that close with one change to the CDN configuration are one piece of work.
+  // Listing them as three identical rows misstates the size of the job.
+  assert.equal(model.remediationGroups.length, 2);
+  const headers = model.remediationGroups.find((g) => g.action === headerFix);
+  assert.equal(headers.group.length, 3);
+  assert.match(model.remediationRows, /closes 3 controls/);
+  assert.equal((model.remediationRows.match(/<tr /g) ?? []).length, 2, "two rows, not four");
+});
+
+test("the inventory stays per-execution — it is the ledger, and the profile column is its point", () => {
+  const reports = new Map([
+    ["authenticated", profileRun("authenticated", [control("TOKEN-ALG", "pass", "high")])],
+    ["agent", profileRun("agent", [control("TOKEN-ALG", "pass", "high")])],
+  ]);
+  const model = buildModel(reports, {});
+  assert.equal((model.inventoryRows.match(/<tr /g) ?? []).length, 2);
+  assert.match(model.inventoryRows, /data-profile="authenticated"/);
+  assert.match(model.inventoryRows, /data-profile="agent"/);
 });
 
 test("the report states which unit it scored by, and the formula", () => {

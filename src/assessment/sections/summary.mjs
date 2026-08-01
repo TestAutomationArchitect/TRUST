@@ -18,6 +18,7 @@ export function renderSummary(model) {
       <span class="sc-chip sc-chip-score">${overallScore}</span>
       <span class="sc-chip sc-chip-${readiness}">${readinessLabel}</span>
       <span class="sc-chip">${coverage.percent}% coverage</span>
+      ${model.unitCounts ? `<span class="sc-chip" data-tip="A control executed in several profiles is one control. The score is computed per ${model.unitCounts.unit}.">${model.unitCounts.controls} controls · ${model.unitCounts.executions} executions</span>` : ""}
     </div>
   </div>
 <div class="posture-hero">

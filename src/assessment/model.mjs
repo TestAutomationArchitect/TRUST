@@ -92,6 +92,16 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
   const allFindings = byControl ? controls : executions;
   const unitCounts = { controls: controls.length, executions: executions.length, unit: byControl ? "control" : "execution" };
 
+  // The narrative sections — cards, remediation, retest — always group by control, whatever the
+  // score is computed over. Deduplicating what a reader *reads* changes no verdict, so it needs
+  // no flag and no major version: one control tested in three profiles is one thing to read
+  // about, with the profiles that confirmed it named on the card. The inventory stays
+  // per-execution, because it is the searchable ledger and already carries a profile column.
+  const displayFindings = controls;
+  const displayFails = displayFindings.filter((f) => f.status === "fail");
+  const displayWarns = displayFindings.filter((f) => f.status === "warn");
+  const displaySkips = displayFindings.filter((f) => f.status === "skip");
+
   const fails = allFindings.filter((f) => f.status === "fail");
   const warns = allFindings.filter((f) => f.status === "warn");
   const passes = allFindings.filter((f) => f.status === "pass");
@@ -108,7 +118,7 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
 
   // ── categories → finding cards ────────────────────────────────────
   const categories = new Map();
-  for (const f of allFindings) {
+  for (const f of displayFindings) {
     const meta = metaOf(f);
     if (!categories.has(meta.category)) categories.set(meta.category, []);
     categories.get(meta.category).push({ ...f, ...meta });
@@ -321,12 +331,35 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
     .join("\n");
 
   const sevOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
-  const remediationRows = [...fails, ...warns]
-    .sort((a, b) => (sevOrder[a.severity] ?? 5) - (sevOrder[b.severity] ?? 5))
-    .map(
-      (f) =>
-        `    <tr><td>${severityBadge(f.severity, f.status)}</td><td>${esc(headline(f))}<br/><span style="font-size:11px;color:var(--muted)">${esc(f.id)}</span></td><td>${esc(f.remediation || "See finding evidence.")}</td><td><span class="env-badge">${esc(ownerFor(f, domainOf(f)))}</span></td></tr>`,
-    )
+  // Grouped by the fix, not by the finding. Seven header controls that all close with one change
+  // to the CDN configuration are one piece of work and one ticket; seven identical rows
+  // misrepresent the size of the job and bury the rows that actually differ.
+  const byRemediation = new Map();
+  for (const f of [...displayFails, ...displayWarns]) {
+    const action = f.remediation || "See finding evidence.";
+    if (!byRemediation.has(action)) byRemediation.set(action, []);
+    byRemediation.get(action).push(f);
+  }
+  const remediationGroups = [...byRemediation.entries()]
+    .map(([action, group]) => ({ action, group: [...group].sort((a, b) => (sevOrder[a.severity] ?? 5) - (sevOrder[b.severity] ?? 5)) }))
+    // Worst severity first, and where two groups tie, the one that closes more controls.
+    .sort((a, b) => (sevOrder[a.group[0].severity] ?? 5) - (sevOrder[b.group[0].severity] ?? 5) || b.group.length - a.group.length);
+
+  const remediationRows = remediationGroups
+    .map(({ action, group }) => {
+      const worst = group[0];
+      const controls = group
+        .map((f) => `<div>${esc(headline(f))} <span style="font-size:11px;color:var(--muted)">${esc(f.id)}</span></div>`)
+        .join("");
+      const count = group.length > 1 ? `<span class="cat-badge">closes ${group.length} controls</span>` : "";
+      return (
+        `    <tr data-status="${esc(worst.status)}" data-severity="${esc(worst.severity)}">` +
+        `<td>${severityBadge(worst.severity, worst.status)}</td>` +
+        `<td>${controls}${count}</td>` +
+        `<td>${esc(action)}</td>` +
+        `<td><span class="env-badge">${esc(ownerFor(worst, domainOf(worst)))}</span></td></tr>`
+      );
+    })
     .join("\n");
 
   // ── Remediation workstreams ───────────────────────────────────────
@@ -383,13 +416,13 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
   const retestCommand = (f) => `trust run --config <config> --profile ${f.profile}`;
   const retestRows =
     [
-      ...[...fails, ...warns].map(
+      ...[...displayFails, ...displayWarns].map(
         (f) =>
           `    <tr><td><span class="tag ${statusCls(f.status)}">${f.status.toUpperCase()}</span> <code>${esc(f.id)}</code></td>` +
           `<td><strong>${esc(f.title)}</strong><div class="ws-meta">must hold before this control closes</div></td>` +
           `<td><code class="retest-cmd">${esc(retestCommand(f))}</code></td></tr>`,
       ),
-      ...skips.map(
+      ...displaySkips.map(
         (f) =>
           `    <tr><td><span class="tag skip">SKIP</span> <code>${esc(f.id)}</code></td>` +
           `<td><strong>${esc(f.title)}</strong><div class="ws-meta">unblock first: ${esc(f.evidence.replace(/^Skipped:\s*/, ""))}</div></td>` +
@@ -399,7 +432,7 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
 
   // Filtering reads these data attributes rather than scraping cell text, so a change to
   // how a status or severity is *rendered* can never silently break the filters.
-  const inventoryRows = allFindings
+  const inventoryRows = executions
     .map((f) => {
       const category = metaOf(f).category;
       return (
@@ -599,6 +632,8 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
     unitCounts,
     executions,
     controls,
+    displayFindings,
+    remediationGroups,
     profileRows,
     profileScopeRows,
     remediationRows,
