@@ -75,6 +75,7 @@ export async function runIdpProbes(config, client) {
     out.push(
       finding({
         id: "IDP-PKCE-SUPPORTED",
+          fix: "idp-client-config",
         title: "The provider supports PKCE with SHA-256 challenges",
         observed: onlyPlain ? "PKCE is offered only as plain, which provides no protection" : "PKCE support is not advertised",
         status: s256 ? "pass" : "warn",
@@ -83,8 +84,8 @@ export async function runIdpProbes(config, client) {
         remediation: s256
           ? ""
           : onlyPlain
-            ? "Enable S256. A plain challenge is the verifier itself, so an attacker who intercepts the authorisation request can complete the exchange."
-            : "The provider does not advertise PKCE. Public clients — SPAs and mobile apps — cannot protect an authorisation code without it.",
+            ? "Enable S256 on the authorisation server. A plain challenge is the verifier itself, so an attacker who intercepts the authorisation request can complete the exchange. Note that this is what the provider *supports*; whether your application asks for it is IDP-AUTHORIZE-REQUEST."
+            : "The provider does not advertise PKCE at all, so no client of it can protect an authorisation code. This is a provider setting, not an application one: check the app client's allowed flows. IDP-AUTHORIZE-REQUEST reports separately on what your application actually requests.",
       }),
     );
 
@@ -94,13 +95,14 @@ export async function runIdpProbes(config, client) {
     out.push(
       finding({
         id: "IDP-IMPLICIT-FLOW",
+          fix: "idp-client-config",
         title: "The implicit flow is not offered",
         observed: "The provider still advertises the implicit flow",
         status: implicit.length ? "warn" : "pass",
         severity: "medium",
         evidence: `response_types_supported: ${responseTypes.join(", ") || "(absent)"}`,
         remediation: implicit.length
-          ? `Response types ${implicit.join(", ")} return tokens in the URL fragment, where they land in browser history, referrer headers and logs. OAuth 2.1 removes the flow; disable it on the authorisation server and move clients to code + PKCE.`
+          ? `Response types ${implicit.join(", ")} return tokens in the URL fragment, where they land in browser history, referrer headers and logs. OAuth 2.1 removes the flow. This is advisory for *your* application — IDP-AUTHORIZE-REQUEST reports what it asks for — but any client of this provider may use the flow, so disable it on the authorisation server and move clients to code + PKCE.`
           : "",
       }),
     );
@@ -113,6 +115,7 @@ export async function runIdpProbes(config, client) {
     out.push(
       finding({
         id: "IDP-CLIENT-AUTH",
+          fix: "idp-client-config",
         title: "Unauthenticated token requests are compensated by PKCE",
         observed: "The token endpoint accepts unauthenticated clients and PKCE is not advertised",
         status: allowsNone && !s256 ? "fail" : "pass",
@@ -153,6 +156,7 @@ export async function runIdpProbes(config, client) {
         out.push(
           finding({
             id: "IDP-AUTHORIZE-REQUEST",
+          fix: "idp-client-config",
             title: "The application requests an authorisation code with PKCE",
             observed: !codeFlow ? `The application requests response_type=${responseType}, returning tokens in the URL` : "The authorisation request carries no S256 PKCE challenge",
             status: codeFlow && pkce ? "pass" : "fail",
@@ -209,6 +213,7 @@ export async function runIdpProbes(config, client) {
       out.push(
         finding({
           id: "IDP-PASSWORD-GRANT",
+          fix: "idp-client-config",
           title: "The user pool refuses direct username/password authentication",
           observed: "USER_PASSWORD_AUTH is enabled, so federated sign-in can be bypassed entirely",
           status: live ? "fail" : flowDisabled ? "pass" : "warn",

@@ -270,6 +270,22 @@ export function registerSummaryRules(rules) {
   return SUMMARY_RULES;
 }
 
+/**
+ * Canonical remediation actions.
+ *
+ * A `fix` key on a finding says "this closes with the same change as everything else carrying
+ * this key". The report groups on it, so a team sees the piece of work rather than a list of
+ * symptoms — seven header controls are one edge configuration change, not seven tickets.
+ */
+export const FIX_ACTIONS = {
+  "edge-response-headers": "Configure security response headers at the edge (CDN, Amplify customHeaders, or the reverse proxy) so every response carries them.",
+  "resolver-owner-scoping": "Add owner/tenant scoping in the resolver, derived from the verified token claim rather than from a client-supplied field.",
+  "token-verification": "Verify the token — algorithm, signature, key and expiry — before any claim in it is used for authorisation.",
+  "storage-prefix-policy": "Scope the storage policy to the caller's identity or tenant prefix, and enforce it in the credential-vending layer rather than in the client.",
+  "agent-tier-boundary": "Restrict each agent runtime to its parent tier, and enforce entitlements inside every agent that touches data.",
+  "idp-client-config": "Correct the identity-provider app client configuration: PKCE with S256, authorisation-code flow only, and no parallel password grant.",
+};
+
 /** Every known test, flattened — used by `trust catalog` and for docs generation. */
 export function listCatalog() {
   return Object.entries(CATALOG)

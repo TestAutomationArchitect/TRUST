@@ -100,7 +100,7 @@ function stringify(value) {
  *   severity  the impact IF this control fails. It is a property of the control, not of
  *             the outcome, which is why a passing test can legitimately be `critical`.
  */
-export function finding({ id, title, status, severity = "info", evidence = "", remediation = "", observed = "", domain = "", category = "", activatedBy = "", skipKind = "", warnKind = "" }) {
+export function finding({ id, title, status, severity = "info", evidence = "", remediation = "", observed = "", domain = "", category = "", activatedBy = "", skipKind = "", warnKind = "", fix = "" }) {
   if (!id) throw new TypeError("finding.id is required");
   if (!title) throw new TypeError(`finding.title is required (id=${id})`);
   if (!STATUSES.includes(status)) {
@@ -136,6 +136,10 @@ export function finding({ id, title, status, severity = "info", evidence = "", r
     // and collapsing them is how a run reads as safer than it is.
     ...(status === "skip" ? { skipKind: SKIP_KINDS.includes(skipKind) ? skipKind : classifySkip(evidence) } : {}),
     ...(status === "warn" ? { warnKind: WARN_KINDS.includes(warnKind) ? warnKind : "advisory" } : {}),
+    // The canonical action that closes this finding. Six header controls carry six different
+    // remediation sentences and close with one change; grouping on the sentence therefore
+    // groups nothing. The key is what a team would put on one ticket.
+    ...(fix ? { fix } : {}),
   };
 }
 

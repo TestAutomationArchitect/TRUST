@@ -447,3 +447,45 @@ test("a verbose trace reports the request without its credentials", async () => 
   // Header names, never values — a trace is the last place a token should surface.
   assert.equal(JSON.stringify(traces[0]).includes("super-secret-token"), false);
 });
+
+test("remediation groups on the canonical action, not on the sentence", () => {
+  // Six header controls carry six different remediation sentences and close with one change to
+  // the edge configuration. Grouping on the sentence groups nothing, which is what a partner
+  // reported after 1.6.0.
+  const header = (id) =>
+    finding({ id, title: id, status: "fail", severity: "medium", evidence: "absent", remediation: `Send the ${id} header.`, fix: "edge-response-headers", category: "Web Hardening", domain: "Infrastructure" });
+  const model = buildModel(
+    new Map([
+      ["passive", profileRun("passive", [
+        header("WEB-HEADER-STRICT-TRANSPORT-SECURITY"),
+        header("WEB-HEADER-CONTENT-SECURITY-POLICY"),
+        header("WEB-HEADER-REFERRER-POLICY"),
+        finding({ id: "API-QUERY-COST", title: "cost", status: "fail", severity: "medium", evidence: "e", remediation: "Add a depth limit.", category: "Resource Limits", domain: "Infrastructure" }),
+      ])],
+    ]),
+    {},
+  );
+
+  assert.equal(model.remediationGroups.length, 2, "three header controls are one piece of work");
+  const grouped = model.remediationGroups.find((g) => g.group.length === 3);
+  assert.match(grouped.action, /Configure security response headers at the edge/);
+  assert.match(model.remediationRows, /closes 3 controls/);
+  // The shared action is the ticket; the per-control sentences are what goes in it.
+  assert.match(model.remediationRows, /rem-specifics/);
+  assert.match(model.remediationRows, /Send the WEB-HEADER-REFERRER-POLICY header\./);
+});
+
+test("a control whose profiles disagree is flagged, not silently reduced", () => {
+  const model = buildModel(
+    new Map([
+      ["passive", profileRun("passive", [control("AUTH-PASSWORD-BYPASS", "pass", "critical", "Authentication", "Authentication")])],
+      ["authenticated", profileRun("authenticated", [control("AUTH-PASSWORD-BYPASS", "warn", "critical", "Authentication", "Authentication")])],
+    ]),
+    {},
+  );
+  const [merged] = model.displayFindings;
+  assert.equal(merged.status, "warn", "worst outcome wins");
+  assert.equal(merged.inconsistent, true);
+  assert.match(model.findingCards, /kind-badge[^>]*>inconsistent</);
+  assert.match(merged.evidence, /Across profiles: passive pass, authenticated warn/);
+});

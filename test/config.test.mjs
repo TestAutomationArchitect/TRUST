@@ -309,3 +309,30 @@ test("preflight judges the expired-token fixture by the opposite rule", async ()
     delete process.env.TRUST_TEST_FIXTURE;
   }
 });
+
+test("preflight forecasts which controls will skip, and the key that would reach them", async () => {
+  const config = baseConfig({
+    api: { endpoint: "https://dev.example.com/graphql", tokenAEnv: "A" },
+    storage: { baseUrl: "https://dev.example.com/files/" },
+    isolation: [
+      { id: "ISO-RECORD", type: "record-ownership", endpoint: "https://dev.example.com/graphql", tokenA: "a", tokenB: "b" },
+      { id: "ISO-INJECT", type: "identity-injection", endpoint: "https://dev.example.com/graphql", token: "a", injectedField: "userid" },
+    ],
+  });
+  const { checks } = await runPreflight(config, { profile: "all", reach: false });
+  const forecast = checks.filter((c) => c.name === "will skip").map((c) => c.detail);
+
+  // A wall of skips arriving after a run is a poor way to learn that four controls needed one
+  // more key. Each line names the control and the setting that reaches it.
+  assert.ok(forecast.some((d) => /API-CSRF — add api\.csrf\.endpoint/.test(d)));
+  assert.ok(forecast.some((d) => /STORAGE-PATH-TRAVERSAL — add storage\.ownPrefix/.test(d)));
+  // A declared boundary is forecast from its own shape: a record-ownership spec with no queryA
+  // cannot discover the record it needs, and a pinned ID goes stale.
+  assert.ok(forecast.some((d) => /ISO-RECORD: add queryA/.test(d)));
+  assert.ok(forecast.some((d) => /ISO-INJECT: add successIndicators/.test(d)));
+
+  // A fully configured surface says so rather than staying silent.
+  const complete = baseConfig({ storage: { baseUrl: "https://dev.example.com/files/", ownPrefix: "p/", signedUrl: "https://dev.example.com/files/x?sig=1" } });
+  const done = await runPreflight(complete, { profile: "mobile", reach: false });
+  assert.ok(done.checks.some((c) => c.name === "coverage forecast" && c.status === "ok"));
+});

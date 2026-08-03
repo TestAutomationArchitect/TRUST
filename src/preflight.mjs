@@ -275,6 +275,61 @@ function isolationChecks(config) {
 }
 
 /**
+ * Which controls a run will not reach, and the config key that would reach them.
+ *
+ * A skip is honest, but a wall of them arriving *after* a run is a poor way to learn that four
+ * controls needed one more key. Every entry here is a control that exists, applies to a
+ * configured surface, and is one setting away from executing — so the forecast reads as a
+ * to-do list rather than as a fault.
+ */
+const COVERAGE_FORECAST = [
+  { key: "api.csrf.endpoint", when: (c) => section(c, "api").value?.endpoint, controls: ["API-CSRF"], what: "a state-changing endpoint a browser session can reach" },
+  { key: "api.massAssignment.operation", when: (c) => section(c, "api").value?.endpoint, controls: ["API-MASS-ASSIGNMENT"], what: "a create/update operation whose response echoes the record" },
+  { key: "api.session.verifyEndpoint", when: (c) => section(c, "api").value?.endpoint, controls: ["SESSION-LOGOUT", "SESSION-EXPIRED-TOKEN"], what: "an authenticated endpoint to re-check a token against" },
+  { key: "api.session.expiredTokenEnv", when: (c) => section(c, "api").value?.session?.verifyEndpoint, controls: ["SESSION-EXPIRED-TOKEN"], what: "a known-expired token, so expiry enforcement can be demonstrated" },
+  { key: "injection.body.endpoint + .fields", when: (c) => section(c, "api").value?.endpoint, controls: ["INJECT-BODY"], what: "a request body whose fields should be validated — a POST-first API is otherwise untested" },
+  { key: "storage.ownPrefix", when: (c) => section(c, "storage").value?.baseUrl, controls: ["STORAGE-PATH-TRAVERSAL"], what: "the caller's own prefix, to attempt an escape from it" },
+  { key: "storage.signedUrl", when: (c) => section(c, "storage").value?.baseUrl, controls: ["STORAGE-SIGNED-URL"], what: "a currently valid signed URL, to test that altering it invalidates it" },
+  { key: "agent.toolProbe.prompt + .successIndicators", when: (c) => section(c, "agent").value?.runtimeEndpoint, controls: ["AGENT-TOOL-ABUSE"], what: "a request needing a tool call beyond the caller's entitlement, and what a successful one looks like" },
+  { key: "agent.endpoints[]", when: (c) => section(c, "agent").value?.runtimeEndpoint, controls: ["AGENT-ENDPOINT-*"], what: "the agent tiers, and what each should refuse" },
+  { key: "idp.loginUrl", when: (c) => section(c, "idp").value, controls: ["IDP-AUTHORIZE-REQUEST"], what: "the app path that redirects into the IdP — what your application asks for, as opposed to what the provider supports" },
+  { key: "idp.cognito.clientId", when: (c) => section(c, "idp").value && !section(c, "api").value?.passwordAuth?.endpoint, controls: ["IDP-PASSWORD-GRANT"], what: "the Cognito app client, to test whether a native password grant bypasses federated sign-in" },
+];
+
+/** Read a dotted path, tolerating a section that resolved through an alias. */
+function configured(config, key) {
+  const [head, ...rest] = key.split(/[ .+]/).filter(Boolean)[0].split(".");
+  const root = section(config, head).value ?? config[head];
+  let node = root;
+  for (const part of key.split("+")[0].trim().split(".").slice(1)) {
+    if (node == null) return false;
+    node = node[part.replace(/\[\]$/, "")];
+  }
+  return Array.isArray(node) ? node.length > 0 : node != null && node !== "";
+}
+
+/**
+ * Isolation specs are declared rather than named, so they are forecast from their own shape:
+ * a boundary missing the field that makes it decidable will skip or warn, and saying which one
+ * beforehand is the difference between a to-do and a surprise.
+ */
+function isolationForecast(config) {
+  const notes = [];
+  for (const spec of config.isolation ?? []) {
+    if (spec.type === "record-ownership" && !spec.queryA && !spec.pathA) {
+      notes.push(`${spec.id}: add queryA (or pathA) so identity A's own record is discovered at run time — a pinned record ID goes stale, and a placeholder skips`);
+    }
+    if (spec.type === "identity-injection" && !(spec.successIndicators ?? []).length) {
+      notes.push(`${spec.id}: add successIndicators, or acceptance of the injected identity cannot be detected and the result stays a warning`);
+    }
+    if (spec.type === "prefix-scoped-storage" && !spec.tokenB && !spec.tokenBEnv) {
+      notes.push(`${spec.id}: add tokenB (an auth strategy name, or tokenBEnv) — a boundary claim needs two identities`);
+    }
+  }
+  return notes;
+}
+
+/**
  * Run the preflight. `reach` performs one TLS handshake per allowlisted host; set it false
  * for a fully offline check.
  */
@@ -341,7 +396,18 @@ export async function runPreflight(config, { profile = "all", reach = true } = {
       : check("request budget", "ok", `cap ${budget.total} covers an estimated ${estimate} requests for profile "${profile}"`),
   );
 
-  // 5. Reachability — a TLS handshake, not a probe. Cheapest possible proof of life.
+  // 5. What this configuration will not reach. Stated before the run, so a wall of skips is a
+  // to-do list agreed in advance rather than a disappointment discovered afterwards.
+  const missing = COVERAGE_FORECAST.filter((entry) => entry.when(config) && !configured(config, entry.key));
+  for (const entry of missing) {
+    checks.push(check("will skip", "warn", `${entry.controls.join(", ")} — add ${entry.key} (${entry.what})`));
+  }
+  for (const note of isolationForecast(config)) checks.push(check("will skip", "warn", note));
+  if (missing.length === 0 && (config.isolation ?? []).length >= 0 && isolationForecast(config).length === 0) {
+    checks.push(check("coverage forecast", "ok", "every control that applies to the configured surfaces has what it needs to run"));
+  }
+
+  // 6. Reachability — a TLS handshake, not a probe. Cheapest possible proof of life.
   if (reach) {
     const client = new SafeHttpClient(config, { budget: { total: allowed.size + 2, suites: null } });
     for (const host of allowed) {

@@ -156,6 +156,9 @@ pre { background: var(--chip-bg); padding: 12px 14px; border-radius: 8px; font-s
 
 /* Sub-kind of a skip or a warning. Deliberately quiet: it qualifies the status badge beside
    it rather than competing with it. */
+.rem-specifics { margin: 6px 0 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+.rem-specifics li { margin: 2px 0; }
+
 .kind-badge { font-size: 9px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700;
   padding: 2px 6px; border-radius: 4px; border: 1px dashed var(--line); color: var(--muted);
   background: transparent; white-space: nowrap; cursor: help; }

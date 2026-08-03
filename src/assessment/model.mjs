@@ -7,7 +7,7 @@
  * new output (SARIF, a run-over-run delta, a dashboard feed) can reuse it unchanged.
  */
 
-import { getTestMeta, getDomain, domainForId, ROOT_CAUSE_MAP, CATEGORY_ROOT_CAUSE_MAP, DOMAIN_ORDER, SUMMARY_RULES, CATALOG, listCatalog, matchAttackPaths } from "../catalog.mjs";
+import { FIX_ACTIONS, getTestMeta, getDomain, domainForId, ROOT_CAUSE_MAP, CATEGORY_ROOT_CAUSE_MAP, DOMAIN_ORDER, SUMMARY_RULES, CATALOG, listCatalog, matchAttackPaths } from "../catalog.mjs";
 import { computeScores } from "./scoring.mjs";
 import { esc, severityBadge, statusCls, ownerFor } from "./html.mjs";
 import { headline } from "../finding.mjs";
@@ -57,6 +57,7 @@ export function collapseToControls(executions) {
 
   for (const control of byId.values()) {
     const outcomes = new Set(control.executions.map((e) => e.status));
+    control.inconsistent = outcomes.size > 1;
     if (outcomes.size > 1) {
       // A control that behaved differently per profile is the interesting case, so it is stated
       // rather than silently reduced to its worst run.
@@ -155,6 +156,7 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
   <summary class="finding-sum">
     <span class="tag ${statusCls(f.status)}">${f.status.toUpperCase()}</span>
     ${f.skipKind || f.warnKind ? `<span class="kind-badge" title="${esc(KIND_TIP[f.skipKind || f.warnKind] ?? "")}">${esc(f.skipKind || f.warnKind)}</span>` : ""}
+    ${f.inconsistent ? `<span class="kind-badge" title="This control returned different outcomes in different profiles — the worst is shown. The evidence lists each one.">inconsistent</span>` : ""}
     ${severityBadge(f.severity, f.status)}
     <span class="finding-name">${esc(headline(f))}</span>
     ${(f.profiles ?? [f.profile]).filter(Boolean).map((p) => `<span class="env-badge">${esc(p)}</span>`).join(" ")}
@@ -345,14 +347,18 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
   // Grouped by the fix, not by the finding. Seven header controls that all close with one change
   // to the CDN configuration are one piece of work and one ticket; seven identical rows
   // misrepresent the size of the job and bury the rows that actually differ.
+  // Group on the canonical action where a probe declared one, and on the remediation sentence
+  // otherwise. Grouping on the sentence alone groups nothing useful: six header controls carry
+  // six different sentences and close with a single change to the edge configuration, which is
+  // exactly the case a partner reported as "not grouped".
   const byRemediation = new Map();
   for (const f of [...displayFails, ...displayWarns]) {
-    const action = f.remediation || "See finding evidence.";
-    if (!byRemediation.has(action)) byRemediation.set(action, []);
-    byRemediation.get(action).push(f);
+    const key = f.fix || f.remediation || "See finding evidence.";
+    if (!byRemediation.has(key)) byRemediation.set(key, { action: FIX_ACTIONS[f.fix] ?? f.remediation ?? "See finding evidence.", group: [] });
+    byRemediation.get(key).group.push(f);
   }
-  const remediationGroups = [...byRemediation.entries()]
-    .map(([action, group]) => ({ action, group: [...group].sort((a, b) => (sevOrder[a.severity] ?? 5) - (sevOrder[b.severity] ?? 5)) }))
+  const remediationGroups = [...byRemediation.values()]
+    .map(({ action, group }) => ({ action, group: [...group].sort((a, b) => (sevOrder[a.severity] ?? 5) - (sevOrder[b.severity] ?? 5)) }))
     // Worst severity first, and where two groups tie, the one that closes more controls.
     .sort((a, b) => (sevOrder[a.group[0].severity] ?? 5) - (sevOrder[b.group[0].severity] ?? 5) || b.group.length - a.group.length);
 
@@ -363,11 +369,19 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
         .map((f) => `<div>${esc(headline(f))} <span style="font-size:11px;color:var(--muted)">${esc(f.id)}</span></div>`)
         .join("");
       const count = group.length > 1 ? `<span class="cat-badge">closes ${group.length} controls</span>` : "";
+      // The shared action is the ticket; the per-control sentences are what goes in it.
+      const specifics =
+        group.length > 1 && group.some((f) => f.remediation && f.remediation !== action)
+          ? `<ul class="rem-specifics">${group
+              .filter((f) => f.remediation && f.remediation !== action)
+              .map((f) => `<li>${esc(f.remediation)}</li>`)
+              .join("")}</ul>`
+          : "";
       return (
         `    <tr data-status="${esc(worst.status)}" data-severity="${esc(worst.severity)}">` +
         `<td>${severityBadge(worst.severity, worst.status)}</td>` +
         `<td>${controls}${count}</td>` +
-        `<td>${esc(action)}</td>` +
+        `<td>${esc(action)}${specifics}</td>` +
         `<td><span class="env-badge">${esc(ownerFor(worst, domainOf(worst)))}</span></td></tr>`
       );
     })

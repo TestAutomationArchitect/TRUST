@@ -134,6 +134,7 @@ export async function runWebProbes(config, client) {
           severity: spec.severity,
           evidence: `HTTP ${response.status} on ${baseUrl.href} — ${spec.label} header is absent.`,
           remediation: spec.remediation,
+          fix: "edge-response-headers",
         }),
       );
       continue;
@@ -160,6 +161,7 @@ export async function runWebProbes(config, client) {
   out.push(
     finding({
       id: "WEB-CLICKJACKING",
+        fix: "edge-response-headers",
       observed: "The application can be framed by any origin",
       title: "Application cannot be framed by an unauthorised origin",
       status: framingBlocked ? "pass" : "fail",
@@ -177,6 +179,7 @@ export async function runWebProbes(config, client) {
     out.push(
       finding({
         id: "WEB-FRAME-ANCESTORS",
+        fix: "edge-response-headers",
         observed: "frame-ancestors is missing, wildcarded or incomplete",
         title: "CSP frame-ancestors is restricted to approved parent origins",
         status: !frameAncestors ? "fail" : wildcard || missing.length ? "warn" : "pass",

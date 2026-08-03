@@ -4,6 +4,37 @@ All notable changes are documented here. This project follows the semver contrac
 [README](README.md#versioning) — note that finding IDs and severities are part of the public
 API, and any change to a verdict is called out under **Verdict changes**.
 
+## [1.6.1] — 2026-08-03
+
+Field fixes from the first full-battery run of 1.6.0 against a live target. That run exercised
+the new probes for the first time — server-side token validation, CSRF, mass assignment,
+body injection, storage traversal and multi-turn agent injection all executed against a real
+system, and the IdP pack found a missing PKCE challenge.
+
+### Fixed
+
+- **Remediation grouping did not group.** 1.6.0 grouped by remediation *text*, and the six
+  security-header controls carry six different sentences while closing with a single change to
+  the edge configuration — so nothing collapsed and the partner correctly reported the feature
+  as absent. Findings now carry a canonical `fix` key; the report groups on that and keeps the
+  per-control sentences nested beneath the shared action. Seven rows become one that says
+  "closes 7 controls".
+- **A control whose profiles disagree is now flagged** with an `inconsistent` badge, not only
+  described inside its evidence. Reported against `AUTH-PASSWORD-BYPASS`, which read WARN in one
+  profile and PASS in others with nothing in the report explaining why.
+
+### Added
+
+- **`trust preflight` forecasts what will skip.** Every control that applies to a configured
+  surface but is one setting short now appears before the run, naming the control and the key:
+  *"API-CSRF — add api.csrf.endpoint"*. Declared isolation boundaries are forecast from their own
+  shape — a `record-ownership` spec with no `queryA` cannot discover the record it needs, and a
+  pinned ID goes stale. Four of the partner's five config issues were exactly this, learned
+  after a run instead of before one.
+- **IdP warnings say which half they describe.** What a provider *supports* and what an
+  application *asks for* are different questions; `IDP-PKCE-SUPPORTED` and `IDP-IMPLICIT-FLOW`
+  now say so and point at `IDP-AUTHORIZE-REQUEST` for the other half.
+
 ## [1.6.0] — 2026-07-31
 
 Positioning, robustness, report honesty and probe depth, from a second round of partner field
