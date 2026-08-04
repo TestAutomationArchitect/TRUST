@@ -186,6 +186,19 @@ function openControl(id) {
   return true;
 }
 
+// The category index tracks what you are reading, so the sticky bar answers "where am I" as
+// well as "where can I go".
+var catObserver = new IntersectionObserver(function (entries) {
+  if (navScrolling) return;
+  entries.forEach(function (e) {
+    if (!e.isIntersecting) return;
+    document.querySelectorAll('.cat-jump').forEach(function (j) {
+      j.classList.toggle('current', j.getAttribute('href') === '#' + e.target.id);
+    });
+  });
+}, { rootMargin: '-160px 0px -70% 0px' });
+document.querySelectorAll('.cat-header[id]').forEach(function (h) { catObserver.observe(h); });
+
 // ── Findings: expand or collapse every card at once ──────────────────
 function toggleAllFindings(btn) {
   var container = btn.closest('.panel-body') || document;

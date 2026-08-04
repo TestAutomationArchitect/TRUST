@@ -44,9 +44,10 @@ system, and the IdP pack found a missing PKCE challenge.
   opening `…#control-API-CROSS-USER` expands the section that holds it, opens the card and marks
   it briefly. Sharing a finding was previously "scroll to Authorization and look for it", which
   at 129 cards is not a link.
-- **A category index at the top of Findings**, leading with where the failures are, so landing on
-  the section does not mean paging through everything that held to reach the three things that
-  did not.
+- **A category index in Findings**, leading with where the failures are, so landing on the
+  section does not mean paging through everything that held to reach the three things that did
+  not. It sticks under the header while the cards are read — an index that scrolls away is one
+  you have to scroll back for — and highlights the group currently in view.
 - **The inventory filters by tag**, the way a run does — including a combined "OWASP API Top 10"
   option — and SARIF rules carry the same tags, so a security dashboard can filter by framework
   rather than only by severity.

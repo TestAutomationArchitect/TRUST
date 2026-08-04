@@ -173,7 +173,7 @@ trust/
 ├── scripts/
 │   ├── preflight.mjs         publish gate: no deps, no install scripts, no secrets shipped
 │   └── combined-report.mjs   deprecated shim → `trust report`
-├── test/                     221 tests over safety, auth, config, isolation, export, probes
+├── test/                     223 tests over safety, auth, config, isolation, export, probes
 └── reports/                  generated output (gitignored)
 ```
 
@@ -694,7 +694,7 @@ Rules for probes: check prerequisites and SKIP (never crash) on missing config o
 npm test        # node --test "test/*.test.mjs"
 ```
 
-221 tests cover the safety guards (HTTPS-only, allowlist, per-run and per-suite caps, throttle, write/agent/denial guards, production block), the auth strategies (SigV4 against AWS's published test vector, the SRP group by its own defining property), config resolution and inheritance, declared isolation boundaries and conditional execution, the finding factory and every redaction rule, SARIF and JUnit output, baseline diffing, report construction, HTML escaping, scoring, domain ordering and catalogue integrity.
+223 tests cover the safety guards (HTTPS-only, allowlist, per-run and per-suite caps, throttle, write/agent/denial guards, production block), the auth strategies (SigV4 against AWS's published test vector, the SRP group by its own defining property), config resolution and inheritance, declared isolation boundaries and conditional execution, the finding factory and every redaction rule, SARIF and JUnit output, baseline diffing, report construction, HTML escaping, scoring, domain ordering and catalogue integrity.
 
 They are not shipped in the package — a partner installing TRUST should not pay for the test suite — so run them from a clone.
 

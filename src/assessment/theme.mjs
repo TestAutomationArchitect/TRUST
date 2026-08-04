@@ -162,10 +162,16 @@ pre { background: var(--chip-bg); padding: 12px 14px; border-radius: 8px; font-s
 .cat-header { scroll-margin-top: var(--nav-offset, 150px); }
 .finding-card { scroll-margin-top: var(--nav-offset, 150px); }
 
-.cat-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px 0; }
+/* Sticks under the header while you read the cards: jumping to another group should not mean
+   scrolling back to the top of the section to find the index again. */
+.cat-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px 0;
+  position: sticky; top: var(--nav-offset, 150px); z-index: 3;
+  padding: 8px 2px; background: var(--panel);
+  border-bottom: 1px solid var(--line); }
 .cat-jump { font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line);
   color: var(--muted); text-decoration: none; background: var(--chip-bg); white-space: nowrap; }
 .cat-jump:hover { color: var(--ink); border-color: var(--muted); }
+.cat-jump.current { color: var(--ink); border-color: var(--accent); background: var(--panel); }
 .cat-jump strong { color: var(--bad); }
 .cat-jump-fail { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
 
@@ -461,7 +467,7 @@ tr.is-current td { background: rgba(37,99,235,.06); }
 
 @media print {
   header { position: static; }
-  .header-controls, .report-nav, .inv-toolbar { display: none; }
+  .header-controls, .report-nav, .inv-toolbar, .cat-index { display: none; }
   /* Nothing may be hidden in a PDF that is filed as evidence. */
   .panel-body { display: block !important; }
   .panel-chevron { display: none; }

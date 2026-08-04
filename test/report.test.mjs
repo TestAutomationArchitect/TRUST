@@ -635,3 +635,25 @@ test("in-report jumps land under the sticky header and stay there", () => {
   assert.match(html, /\.cat-header \{ scroll-margin-top: var\(--nav-offset/);
   assert.match(html, /\.finding-card \{ scroll-margin-top: var\(--nav-offset/);
 });
+
+test("the category index stays reachable while the cards are being read", () => {
+  const html = buildReport(
+    new Map([
+      ["authenticated", profileRun("authenticated", [
+        control("API-CROSS-USER", "fail", "critical", "Authorization — API", "Authorization"),
+        control("TOKEN-ALG", "pass", "high"),
+      ])],
+    ]),
+    {},
+  );
+
+  // Rendered once at the top of a long section, an index is gone by the time a reader wants it.
+  assert.match(html, /\.cat-index \{[^}]*position: sticky/s);
+  // Under the header, not behind it — the same measured offset the jumps use.
+  assert.match(html, /\.cat-index \{[^}]*top: var\(--nav-offset/s);
+  // It answers "where am I" as well as "where can I go".
+  assert.match(html, /catObserver/);
+  assert.match(html, /j\.classList\.toggle\('current'/);
+  // Navigation belongs on screen, not in a PDF.
+  assert.match(html, /\.cat-index \{ display: none; \}|, \.cat-index \{ display: none; \}/);
+});
