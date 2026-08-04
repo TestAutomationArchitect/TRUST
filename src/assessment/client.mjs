@@ -194,6 +194,9 @@ var INV_SELECTS = [
   { id: 'invStatus', attr: 'status' },
   { id: 'invSeverity', attr: 'severity' },
   { id: 'invCategory', attr: 'category' },
+  // A control carries several tags, so this one matches by containment while the others match
+  // the whole attribute.
+  { id: 'invTag', attr: 'tags', multi: true },
 ];
 
 function clearInventoryFilters() {
@@ -219,7 +222,7 @@ function filterInventory() {
     el.classList.toggle('is-active', raw !== '');
     if (raw === '') return;
     active++;
-    filters.push({ attr: f.attr, values: raw.split('|') });
+    filters.push({ attr: f.attr, values: raw.split('|'), multi: f.multi === true });
   });
   if (q) active++;
 
@@ -227,7 +230,10 @@ function filterInventory() {
   var shown = 0;
   rows.forEach(function (row) {
     var visible = filters.every(function (f) {
-      return f.values.indexOf(row.getAttribute('data-' + f.attr)) !== -1;
+      var value = row.getAttribute('data-' + f.attr) || '';
+      if (!f.multi) return f.values.indexOf(value) !== -1;
+      var owned = value.split(' ');
+      return f.values.some(function (wanted) { return owned.indexOf(wanted) !== -1; });
     }) && (!q || row.textContent.toLowerCase().indexOf(q) !== -1);
     row.style.display = visible ? '' : 'none';
     if (visible) shown++;

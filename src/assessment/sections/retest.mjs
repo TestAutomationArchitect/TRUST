@@ -5,13 +5,13 @@
 import { sectionCard, filterBar } from "../html.mjs";
 
 export function renderRetest(model) {
-  const { retestRows, skips, fails, warns } = model;
+  const { retestRows, skips, fails, warns, setupIssues } = model;
   return sectionCard({
     id: "section-retest",
     title: `Retest Requirements`,
     badge: `${fails.length ? `<span class="sc-chip sc-chip-bad">${fails.length} to fix</span>` : ""}${skips.length ? `<span class="sc-chip">${skips.length} unvalidated</span>` : ""}${!fails.length && !skips.length ? '<span class="sc-chip sc-chip-ready">nothing outstanding</span>' : ""}`,
     open: false,
-    body: `${filterBar({ scope: "retest", placeholder: "Filter by control or condition…", count: fails.length + warns.length + skips.length, noun: "controls" })}
+    body: `${filterBar({ scope: "retest", placeholder: "Filter by control or condition…", count: (retestRows.match(/<tr/g) ?? []).length, noun: "controls" })}
 <div class="table-card"><div class="table-wrap">
 <table>
   <thead><tr><th>Control</th><th>Closes when this holds</th><th>Re-run with</th></tr></thead>
@@ -19,6 +19,11 @@ export function renderRetest(model) {
 ${retestRows}
   </tbody>
 </table>
-</div></div>`,
+</div></div>
+${
+  setupIssues?.length
+    ? `<p class="ws-meta" style="margin-top:10px;">${setupIssues.length} further control(s) are unvalidated because this run was not configured to reach them. They are listed under <strong>Setup, not findings</strong> in Scope, with the setting each one needs — a config change rather than a re-run.</p>`
+    : ""
+}`,
   });
 }

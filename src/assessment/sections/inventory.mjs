@@ -33,7 +33,7 @@ function options(facet, labels, { all, combined }) {
 
 export function renderInventory(model) {
   const { allFindings, inventoryRows, inventoryFacets } = model;
-  const { statuses, severities, categories } = inventoryFacets;
+  const { statuses, severities, categories, tags } = inventoryFacets;
 
   return sectionCard({
     id: "section-inventory",
@@ -62,6 +62,12 @@ ${options(severities, SEVERITY_LABEL, { all: "All severities", combined: { label
     <label class="inv-label" for="invCategory">Category</label>
     <select class="inv-select" id="invCategory" onchange="filterInventory()">
 ${options(categories, {}, { all: "All categories" })}
+    </select>
+  </div>
+  <div class="inv-field">
+    <label class="inv-label" for="invTag">Tag</label>
+    <select class="inv-select" id="invTag" onchange="filterInventory()">
+${options(tags ?? [], {}, { all: "All tags", combined: { label: "OWASP API Top 10", values: ["owasp-api-1", "owasp-api-2", "owasp-api-3", "owasp-api-4", "owasp-api-5", "owasp-api-6", "owasp-api-7", "owasp-api-8", "owasp-api-9", "owasp-api-10"] } })}
     </select>
   </div>
   <div class="inv-field inv-field-actions">

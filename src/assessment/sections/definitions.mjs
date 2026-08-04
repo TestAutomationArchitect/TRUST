@@ -82,7 +82,7 @@ export function renderDefinitions(model) {
     ],
     [
       "Coverage",
-      "Assessed controls as a share of applicable controls in the catalogue: <code>coverage = assessed ÷ (assessed + unvalidated + not&nbsp;run)</code>, where <em>unvalidated</em> is a control that ran but could not reach a verdict — missing credentials, unmet precondition — and <em>not run</em> is one no executed profile covers. The score is computed only over controls that reached a verdict, so coverage tells you how much of the target that score speaks for. Below 100% the score is labelled <em>Assessed</em> Security Posture.",
+      "Assessed controls as a share of applicable controls in the catalogue: <code>coverage = assessed ÷ (assessed + unvalidated + not&nbsp;run)</code>, where <em>unvalidated</em> is a control that ran but could not reach a verdict — missing credentials, unmet precondition — and <em>not run</em> is one no executed profile covers. The score is computed only over controls that reached a verdict, so coverage tells you how much of the target that score speaks for. Below 100% the score is labelled <em>Assessed</em> Security Posture. A second figure — controls assessed as a share of what this <em>configuration</em> can reach — is reported alongside, because \"we have not configured this yet\" and \"this cannot apply here\" are different debts and only the first one shrinks by editing a config file.",
     ],
     [
       "Corroborated attack path",

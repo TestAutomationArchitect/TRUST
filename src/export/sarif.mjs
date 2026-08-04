@@ -18,7 +18,7 @@
  * a line of source.
  */
 
-import { getTestMeta, domainForId } from "../catalog.mjs";
+import { getTestMeta, domainForId, tagsFor } from "../catalog.mjs";
 import { findingKey, fingerprint } from "./identity.mjs";
 import { headline } from "../finding.mjs";
 
@@ -50,7 +50,9 @@ function ruleFor(finding) {
     },
     defaultConfiguration: { level: LEVEL_OF_SEVERITY[finding.severity] ?? "note" },
     properties: {
-      tags: ["security", domain, category].filter(Boolean),
+      // A dashboard filters by tag, so the framework mapping travels with the rule rather than
+      // living only in the CLI.
+      tags: [...new Set(["security", domain, category, ...tagsFor(finding.id, category)].filter(Boolean))],
       "security-severity": SECURITY_SEVERITY[finding.severity] ?? "1.0",
       category,
       domain,

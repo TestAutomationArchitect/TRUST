@@ -546,3 +546,42 @@ test("tags map a control to a framework, and filter a catalogue listing", async 
   assert.deepEqual(tagsFor("API-CROSS-USER"), tagsFor("API-UNSCOPED-LIST"));
   assert.ok(listCatalog().every((e) => Array.isArray(e.tags) && e.tags.length > 0), "every control carries at least one tag");
 });
+
+test("retest lists what a re-run could change, and nothing a re-run cannot", async () => {
+  const { skipped } = await import("../src/finding.mjs");
+  const model = buildModel(
+    new Map([
+      ["authenticated", profileRun("authenticated", [
+        control("API-CROSS-USER", "fail", "critical", "Authorization — API", "Authorization"),
+        skipped("AGENT-ACL-BYPASS", "Sub-agent ACL", "hierarchy held — the bypass path is not reachable"),
+        skipped("MOBILE-CERT-PINNING", "Pinning", "requires an instrumented device: install a proxy CA"),
+      ])],
+    ]),
+    {},
+  );
+  assert.match(model.retestRows, /API-CROSS-USER/);
+  assert.match(model.retestRows, /AGENT-ACL-BYPASS/, "a precondition can change on a later run, so it belongs here");
+  // Certificate pinning cannot be retested by this harness at all — its manual procedure is on
+  // the finding, and a retest row saying "re-run trust" would be noise.
+  assert.ok(!model.retestRows.includes("MOBILE-CERT-PINNING"));
+});
+
+test("coverage reports both what applies and what this configuration can reach", () => {
+  const model = buildModel(
+    new Map([["authenticated", profileRun("authenticated", [control("API-CROSS-USER", "pass", "critical", "Authorization — API", "Authorization")])]]),
+    {},
+  );
+  // "We have not configured this yet" and "this cannot apply here" are different debts, and
+  // only the first shrinks by editing a config file.
+  assert.ok(model.coverage.reachablePercent >= model.coverage.percent);
+  assert.equal(typeof model.coverage.reachableOf, "number");
+});
+
+test("the inventory can be filtered by tag, the way a run can", () => {
+  const model = buildModel(
+    new Map([["authenticated", profileRun("authenticated", [control("API-CROSS-USER", "fail", "critical", "Authorization — API", "Authorization")])]]),
+    {},
+  );
+  assert.ok(model.inventoryFacets.tags.some((t) => t.value === "owasp-api-1"));
+  assert.match(model.inventoryRows, /data-tags="[^"]*owasp-api-1/);
+});

@@ -7,7 +7,7 @@
  * new output (SARIF, a run-over-run delta, a dashboard feed) can reuse it unchanged.
  */
 
-import { FIX_ACTIONS, getTestMeta, getDomain, domainForId, ROOT_CAUSE_MAP, CATEGORY_ROOT_CAUSE_MAP, DOMAIN_ORDER, SUMMARY_RULES, CATALOG, listCatalog, matchAttackPaths } from "../catalog.mjs";
+import { FIX_ACTIONS, tagsFor, getTestMeta, getDomain, domainForId, ROOT_CAUSE_MAP, CATEGORY_ROOT_CAUSE_MAP, DOMAIN_ORDER, SUMMARY_RULES, CATALOG, listCatalog, matchAttackPaths } from "../catalog.mjs";
 import { computeScores } from "./scoring.mjs";
 import { esc, severityBadge, statusCls, ownerFor } from "./html.mjs";
 import { headline } from "../finding.mjs";
@@ -454,7 +454,9 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
           `<td><strong>${esc(f.title)}</strong><div class="ws-meta">must hold before this control closes</div></td>` +
           `<td><code class="retest-cmd">${esc(retestCommand(f))}</code></td></tr>`,
       ),
-      ...displaySkips.map(
+      ...displaySkips
+        .filter((f) => f.skipKind !== "not-applicable")
+        .map(
         (f) =>
           `    <tr><td><span class="tag skip">SKIP</span> <code>${esc(f.id)}</code></td>` +
           `<td><strong>${esc(f.title)}</strong><div class="ws-meta">unblock first: ${esc(f.evidence.replace(/^Skipped:\s*/, ""))}</div></td>` +
@@ -468,7 +470,7 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
     .map((f) => {
       const category = metaOf(f).category;
       return (
-        `    <tr data-status="${esc(f.status)}" data-severity="${esc(f.severity)}" data-category="${esc(category)}" data-profile="${esc(f.profile)}">` +
+        `    <tr data-status="${esc(f.status)}" data-severity="${esc(f.severity)}" data-category="${esc(category)}" data-profile="${esc(f.profile)}" data-tags="${esc(tagsFor(f.id, category).join(" "))}">` +
         `<td><span class="tag ${statusCls(f.status)}">${f.status.toUpperCase()}</span></td>` +
         `<td>${severityBadge(f.severity, f.status)}</td>` +
         `<td><span class="finding-id-tag">${esc(f.id)}</span></td>` +
@@ -496,6 +498,14 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
     severities: [...countBy("severity")].sort(byOrder(SEVERITY_ORDER)).map(([value, count]) => ({ value, count })),
     categories: [...countBy("category")].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([value, count]) => ({ value, count })),
     profiles: [...countBy("profile")].map(([value, count]) => ({ value, count })),
+    // Compliance filtering belongs in the report too: reading "show me OWASP API-2" should not
+    // require re-running the CLI with --tag.
+    tags: [...executions.reduce((acc, f) => {
+      for (const tag of tagsFor(f.id, f.category)) acc.set(tag, (acc.get(tag) ?? 0) + 1);
+      return acc;
+    }, new Map())]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([value, count]) => ({ value, count })),
   };
 
   const profileScopeRows = [...reports.entries()]
@@ -612,15 +622,25 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
   // A skip that means "nobody looked" and one that means "this cannot apply here" are
   // different facts about coverage. Counting them together is how a run reads as safer than it
   // is: the unconfigured ones are precisely the controls a team still owes itself.
-  const skipsByKind = { unconfigured: 0, "not-applicable": 0, precondition: 0 };
+  const skipsByKindCount = { unconfigured: 0, "not-applicable": 0, precondition: 0 };
+  const skipsByKind = skipsByKindCount;
   // Every skipped control, including the unconfigured ones now listed under Setup. Coverage is
   // the one place they must still be counted: moving them out of the findings list changes
   // where they are *read*, never whether they count against what the run covered.
   for (const f of controls.filter((c) => c.status === "skip")) {
-    skipsByKind[f.skipKind ?? "unconfigured"] = (skipsByKind[f.skipKind ?? "unconfigured"] ?? 0) + 1;
+    skipsByKindCount[f.skipKind ?? "unconfigured"] = (skipsByKindCount[f.skipKind ?? "unconfigured"] ?? 0) + 1;
   }
 
+  // Two numbers, because "how much of the catalogue applies here" and "how much of what this
+  // configuration can reach did we assess" are different questions, and reporting only the first
+  // is what the partner called conflating "not configured" with "gap". The second is the one a
+  // team acts on this week; the first is the one that says how much more is possible.
+  const reachableDenominator = applicableCount - skipsByKindCount.unconfigured - notRun.length;
+  const reachablePct = reachableDenominator > 0 ? Math.round((assessedCount / reachableDenominator) * 100) : coveragePct;
+
   const coverage = {
+    reachablePercent: reachablePct,
+    reachableOf: reachableDenominator,
     assessed: assessedCount,
     unvalidated: unvalidatedCount,
     skipsByKind,

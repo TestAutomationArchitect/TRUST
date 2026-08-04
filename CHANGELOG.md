@@ -40,6 +40,16 @@ system, and the IdP pack found a missing PKCE challenge.
 - **Every warning says what to do next.** The three kinds need three different next steps —
   re-run and verify, raise the budget and finish the sweep, or treat as hardening — and a
   warning with no next step is a dead end for a reader.
+- **The inventory filters by tag**, the way a run does — including a combined "OWASP API Top 10"
+  option — and SARIF rules carry the same tags, so a security dashboard can filter by framework
+  rather than only by severity.
+- **Coverage reports two numbers.** Controls assessed as a share of what applies, and as a share
+  of what this *configuration* can reach. "We have not configured this yet" and "this cannot
+  apply here" are different debts, and only the first shrinks by editing a config file.
+- **Retest lists what a re-run could change.** A control that cannot be verified over HTTP at all
+  — certificate pinning needs a device — no longer gets a row telling you to re-run; its manual
+  procedure is on the finding. Controls waiting on configuration are named in Setup instead,
+  with a pointer from Retest, because a config change is not a re-run.
 - **Run provenance in the report.** Generated timestamp with timezone, run IDs, commit and
   branch, tool version, configuration hash, catalogue hash and size, and how each identity was
   obtained. The two hashes are what make a trend comparison honest: change either and the runs

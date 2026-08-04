@@ -50,7 +50,7 @@ ${[...domainScores.entries()]
 
 ${coverage.partial ? `<div class="callout callout-warn coverage-note"><strong>Read the score with its coverage.</strong> ${coverage.assessed} of ${coverage.applicable} applicable controls reached a verdict (${coverage.percent}%): ${coverage.unvalidated} skipped, and ${coverage.notRun} not exercised by the profiles that ran. ${coverage.domainsAssessed} of ${coverage.domainsKnown} trust domains were assessed. The score describes the controls that ran — it is not a statement about the untested remainder.${
     coverage.skipsByKind?.unconfigured
-      ? ` <strong>${coverage.skipsByKind.unconfigured} of the skips were never configured</strong> — nobody looked, so the target may well have those problems. ${coverage.skipsByKind["not-applicable"]} cannot apply here, and ${coverage.skipsByKind.precondition} could not proceed (an upstream control held, or an identity was missing).`
+      ? ` <strong>${coverage.skipsByKind.unconfigured} of the skips were never configured</strong> — nobody looked, so the target may well have those problems. ${coverage.skipsByKind["not-applicable"]} cannot apply here, and ${coverage.skipsByKind.precondition} could not proceed (an upstream control held, or an identity was missing). Of the controls this configuration <em>can</em> reach, <strong>${coverage.reachablePercent}%</strong> were assessed — the gap between that and ${coverage.percent}% is what more configuration would buy.`
       : ""
   }</div>` : ""}
 
