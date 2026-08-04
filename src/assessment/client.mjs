@@ -74,12 +74,62 @@ document.querySelectorAll('section[id]').forEach(function (s) { observer.observe
 (function () {
   var id = (location.hash || '').replace('#', '');
   if (!id) return;
+  // A control link is the common case now that findings are addressable.
+  if (id.indexOf('control-') === 0 && openControl(id.slice('control-'.length))) return;
   var section = document.getElementById(id);
   if (!section || !section.classList.contains('panel-card')) return;
   collapseAllPanels(section);
   setPanel(section, true);
   setTimeout(function () { section.scrollIntoView({ block: 'start' }); }, 0);
 })();
+
+// Jump to a category heading inside the section already open, without collapsing anything.
+function jumpWithin(event, id) {
+  if (event) event.preventDefault();
+  var target = document.getElementById(id);
+  if (!target) return;
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  history.replaceState(null, '', '#' + id);
+}
+
+// A link to one control. Sharing a finding should not mean "scroll to Authorization and look
+// for it" — the card opens, highlights, and the URL in the clipboard reproduces exactly that.
+function copyControlLink(event, id) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  var url = location.href.split('#')[0] + '#control-' + id;
+  var done = function () {
+    var btn = event && event.currentTarget;
+    if (!btn) return;
+    var was = btn.textContent;
+    btn.textContent = '✓';
+    setTimeout(function () { btn.textContent = was; }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(done, done);
+  else done();
+  history.replaceState(null, '', '#control-' + id);
+}
+
+// Opening a control link: open the section that holds it, open the card, and mark it briefly so
+// the eye lands on the right one among a hundred.
+function openControl(id) {
+  var card = document.getElementById('control-' + id);
+  if (!card) return false;
+  var section = card.closest('section[id]');
+  if (section) {
+    collapseAllPanels(section);
+    setPanel(section, true);
+    document.querySelectorAll('.nav-pill').forEach(function (p) {
+      p.classList.toggle('active', p.getAttribute('href') === '#' + section.id);
+    });
+  }
+  card.open = true;
+  setTimeout(function () {
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('control-flash');
+    setTimeout(function () { card.classList.remove('control-flash'); }, 1600);
+  }, 60);
+  return true;
+}
 
 // ── Findings: expand or collapse every card at once ──────────────────
 function toggleAllFindings(btn) {

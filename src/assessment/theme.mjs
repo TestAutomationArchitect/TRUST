@@ -159,6 +159,20 @@ pre { background: var(--chip-bg); padding: 12px 14px; border-radius: 8px; font-s
 .rem-specifics { margin: 6px 0 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
 .rem-specifics li { margin: 2px 0; }
 
+.cat-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px 0; }
+.cat-jump { font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line);
+  color: var(--muted); text-decoration: none; background: var(--chip-bg); white-space: nowrap; }
+.cat-jump:hover { color: var(--ink); border-color: var(--muted); }
+.cat-jump strong { color: var(--bad); }
+.cat-jump-fail { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+
+.copy-link { margin-left: 6px; border: 1px solid transparent; background: transparent; color: var(--muted);
+  font-size: 12px; font-weight: 700; cursor: pointer; border-radius: 6px; padding: 0 5px; line-height: 1.6; opacity: 0; }
+.finding-sum:hover .copy-link, .copy-link:focus { opacity: 1; border-color: var(--line); }
+
+/* A linked control marks itself, so the eye lands on the right one among a hundred. */
+.control-flash { outline: 2px solid var(--accent); outline-offset: 3px; }
+
 .kind-badge { font-size: 9px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700;
   padding: 2px 6px; border-radius: 4px; border: 1px dashed var(--line); color: var(--muted);
   background: transparent; white-space: nowrap; cursor: help; }

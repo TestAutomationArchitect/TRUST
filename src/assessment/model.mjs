@@ -150,16 +150,31 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
     return failDiff !== 0 ? failDiff : catOrder(a[0]) - catOrder(b[0]);
   });
 
+  // Fifteen categories of cards is a long scroll, and the failures are what a reader came for.
+  // The index says where they are, so landing on the section does not mean paging through
+  // everything that held to reach the three things that did not.
+  const categoryIndex = sortedCategories
+    .map(([cat, items]) => {
+      const catFails = items.filter((f) => f.status === "fail").length;
+      const slug = `cat-${cat.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+      return (
+        `<a class="cat-jump${catFails ? " cat-jump-fail" : ""}" href="#${slug}" onclick="jumpWithin(event, '${slug}')">` +
+        `${esc(cat)} ${catFails ? `<strong>${catFails}</strong>` : `<span>${items.length}</span>`}</a>`
+      );
+    })
+    .join("");
+
   const findingCards = sortedCategories
     .map(([cat, findings]) => {
       const catFails = findings.filter((f) => f.status === "fail").length;
-      const header = `\n<div class="cat-header"><h4>${esc(cat)}</h4><span class="cat-badge">${catFails ? `${catFails} failed` : `${findings.length} tested`}</span></div>`;
+      const slug = `cat-${cat.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+      const header = `\n<div class="cat-header" id="${slug}"><h4>${esc(cat)}</h4><span class="cat-badge">${catFails ? `${catFails} failed` : `${findings.length} tested`}</span></div>`;
       const statusRank = { fail: 0, warn: 1, pass: 2, skip: 3 };
       const cards = [...findings]
         .sort((a, b) => statusRank[a.status] - statusRank[b.status])
         .map(
           (f) => `
-<details class="finding-card f-${f.status}">
+<details class="finding-card f-${f.status}" id="control-${esc(f.id)}">
   <summary class="finding-sum">
     <span class="tag ${statusCls(f.status)}">${f.status.toUpperCase()}</span>
     ${f.skipKind || f.warnKind ? `<span class="kind-badge" title="${esc(KIND_TIP[f.skipKind || f.warnKind] ?? "")}">${esc(f.skipKind || f.warnKind)}</span>` : ""}
@@ -168,6 +183,7 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
     <span class="finding-name">${esc(headline(f))}</span>
     ${(f.profiles ?? [f.profile]).filter(Boolean).map((p) => `<span class="env-badge">${esc(p)}</span>`).join(" ")}
     <span class="finding-id-tag">${esc(f.id)}</span>
+    <button class="copy-link" title="Copy a link to this control" aria-label="Copy a link to ${esc(f.id)}" onclick="copyControlLink(event, '${esc(f.id)}')">#</button>
   </summary>
   <div class="finding-body">
     ${f.status === "pass" ? "" : `<span class="finding-label">Expected control</span><p>${esc(f.title)}</p>`}
@@ -689,6 +705,7 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
     categories,
     sortedCategories,
     findingCards,
+    categoryIndex,
     execBullets,
     execSynopsis,
     rootCauseRows,

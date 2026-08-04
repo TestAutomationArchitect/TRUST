@@ -585,3 +585,30 @@ test("the inventory can be filtered by tag, the way a run can", () => {
   assert.ok(model.inventoryFacets.tags.some((t) => t.value === "owasp-api-1"));
   assert.match(model.inventoryRows, /data-tags="[^"]*owasp-api-1/);
 });
+
+test("every control is addressable, and the findings section says where the failures are", () => {
+  const model = buildModel(
+    new Map([
+      ["authenticated", profileRun("authenticated", [
+        control("API-CROSS-USER", "fail", "critical", "Authorization — API", "Authorization"),
+        control("TOKEN-ALG", "pass", "high"),
+      ])],
+    ]),
+    {},
+  );
+
+  // Sharing a finding should not mean "scroll to Authorization and look for it".
+  assert.match(model.findingCards, /id="control-API-CROSS-USER"/);
+  assert.match(model.findingCards, /copyControlLink\(event, 'API-CROSS-USER'\)/);
+
+  // The index leads with where the failures are, and counts what held.
+  assert.match(model.categoryIndex, /href="#cat-authorization-api"/);
+  assert.match(model.categoryIndex, /cat-jump-fail/);
+  assert.match(model.findingCards, /class="cat-header" id="cat-authorization-api"/);
+
+  const html = buildReport(new Map([["authenticated", profileRun("authenticated", [control("API-CROSS-USER", "fail", "critical", "Authorization — API", "Authorization")])]]), {});
+  // A #control-… link has to open the section, open the card and mark it, or the anchor lands
+  // on a collapsed panel and shows nothing.
+  assert.match(html, /function openControl/);
+  assert.match(html, /indexOf\('control-'\) === 0/);
+});

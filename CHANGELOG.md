@@ -40,6 +40,13 @@ system, and the IdP pack found a missing PKCE challenge.
 - **Every warning says what to do next.** The three kinds need three different next steps —
   re-run and verify, raise the budget and finish the sweep, or treat as hardening — and a
   warning with no next step is a dead end for a reader.
+- **Every control is addressable.** Each finding card carries an anchor and a copy-link button;
+  opening `…#control-API-CROSS-USER` expands the section that holds it, opens the card and marks
+  it briefly. Sharing a finding was previously "scroll to Authorization and look for it", which
+  at 129 cards is not a link.
+- **A category index at the top of Findings**, leading with where the failures are, so landing on
+  the section does not mean paging through everything that held to reach the three things that
+  did not.
 - **The inventory filters by tag**, the way a run does — including a combined "OWASP API Top 10"
   option — and SARIF rules carry the same tags, so a security dashboard can filter by framework
   rather than only by severity.

@@ -5,7 +5,7 @@
 import { sectionCard, filterBar } from "../html.mjs";
 
 export function renderFindings(model) {
-  const { findingCards, fails, warns, allFindings } = model;
+  const { findingCards, categoryIndex, fails, warns, allFindings } = model;
   return sectionCard({
     id: "section-findings",
     title: `Detailed Findings`,
@@ -16,6 +16,7 @@ export function renderFindings(model) {
   <button class="inv-toggle" onclick="toggleAllFindings(this)">Expand all</button>
 </div>
 ${filterBar({ scope: "findings", placeholder: "Filter by ID, control or category…", count: allFindings.length, noun: "controls" })}
+${categoryIndex ? `<nav class="cat-index" aria-label="Jump to a category">${categoryIndex}</nav>` : ""}
 ${findingCards}`,
   });
 }
