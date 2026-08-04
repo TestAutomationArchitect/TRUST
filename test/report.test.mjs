@@ -612,3 +612,26 @@ test("every control is addressable, and the findings section says where the fail
   assert.match(html, /function openControl/);
   assert.match(html, /indexOf\('control-'\) === 0/);
 });
+
+test("in-report jumps land under the sticky header and stay there", () => {
+  const html = buildReport(
+    new Map([["authenticated", profileRun("authenticated", [control("API-CROSS-USER", "fail", "critical", "Authorization — API", "Authorization")])]]),
+    {},
+  );
+
+  // The header wraps at narrow widths, so its height is measured rather than guessed at.
+  assert.match(html, /function headerOffset/);
+  assert.match(html, /--nav-offset/);
+  assert.ok(!html.includes("scrollIntoView"), "scrollIntoView cannot account for a sticky header or for layout that moves after the call");
+
+  // Opening one panel while collapsing the others changes the height above the target, so the
+  // position is re-measured once the animation has finished and snapped if it drifted.
+  assert.match(html, /Math\.abs\(drift\) > 4/);
+  // And the spy must not relight a pill the scroll merely passed over.
+  assert.match(html, /if \(navScrolling\) return;/);
+
+  // The two elements the new jumps target had no scroll margin at all, which is why they landed
+  // beneath the header.
+  assert.match(html, /\.cat-header \{ scroll-margin-top: var\(--nav-offset/);
+  assert.match(html, /\.finding-card \{ scroll-margin-top: var\(--nav-offset/);
+});

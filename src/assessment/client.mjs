@@ -43,6 +43,61 @@ function collapseAllPanels(except) {
   });
 }
 
+// ── Scrolling under a sticky header ─────────────────────────────────
+//
+// Three things made a click land in the wrong place, and all three had to be fixed together.
+//
+//   1. The header is sticky and wraps at narrow widths, so a fixed scroll-margin was a guess.
+//      Its real height is measured and published as --nav-offset.
+//   2. Opening one panel while collapsing the others changes the height of the document *above*
+//      the target. A scroll computed before that settles overshoots, which is the "it scrolls
+//      too far" everyone sees. The position is now computed after layout, and corrected once
+//      the animation ends.
+//   3. The scroll-spy fires continuously during a smooth scroll and re-highlights whatever it
+//      passes, so the pill you clicked did not stay lit. It is suspended while a programmatic
+//      scroll is in flight.
+var navScrolling = false;
+var navScrollTimer = null;
+
+function headerOffset() {
+  var header = document.querySelector('header');
+  var h = header ? Math.ceil(header.getBoundingClientRect().height) : 120;
+  return h + 12;
+}
+
+function publishNavOffset() {
+  document.documentElement.style.setProperty('--nav-offset', headerOffset() + 'px');
+}
+publishNavOffset();
+window.addEventListener('resize', publishNavOffset);
+
+/** Scroll an element under the header, after layout has settled, and hold it there. */
+function scrollToElement(el) {
+  if (!el) return;
+  publishNavOffset();
+  navScrolling = true;
+  if (navScrollTimer) clearTimeout(navScrollTimer);
+
+  var settle = function (behavior) {
+    var top = el.getBoundingClientRect().top + window.pageYOffset - headerOffset();
+    window.scrollTo({ top: Math.max(0, top), behavior: behavior });
+  };
+
+  // Two frames: one for the panel that just opened, one for the reflow that follows it.
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () {
+      settle('smooth');
+      // The correction is what makes it stick. Collapsing panels above the target keeps moving
+      // it while the animation runs, so the final position is re-measured and snapped.
+      navScrollTimer = setTimeout(function () {
+        var drift = el.getBoundingClientRect().top - headerOffset();
+        if (Math.abs(drift) > 4) settle('auto');
+        navScrolling = false;
+      }, 420);
+    });
+  });
+}
+
 // ── Navigation pills ────────────────────────────────────────────────
 // A pill opens its section, closes the rest, and scrolls it under the sticky header.
 function navTo(el) {
@@ -53,13 +108,15 @@ function navTo(el) {
   if (!section) return true;
   collapseAllPanels(section);
   setPanel(section, true);
-  // Let the panel lay out before scrolling to it.
-  requestAnimationFrame(function () { section.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  scrollToElement(section);
   return true;
 }
 
 // Scroll-spy: reflect the section in view on the pills, without opening anything.
 var observer = new IntersectionObserver(function (entries) {
+  // A programmatic scroll passes over every section between here and there; letting the spy
+  // react means the pill you clicked does not stay lit.
+  if (navScrolling) return;
   entries.forEach(function (e) {
     if (!e.isIntersecting) return;
     var id = e.target.id;
@@ -80,7 +137,7 @@ document.querySelectorAll('section[id]').forEach(function (s) { observer.observe
   if (!section || !section.classList.contains('panel-card')) return;
   collapseAllPanels(section);
   setPanel(section, true);
-  setTimeout(function () { section.scrollIntoView({ block: 'start' }); }, 0);
+  setTimeout(function () { scrollToElement(section); }, 0);
 })();
 
 // Jump to a category heading inside the section already open, without collapsing anything.
@@ -88,7 +145,7 @@ function jumpWithin(event, id) {
   if (event) event.preventDefault();
   var target = document.getElementById(id);
   if (!target) return;
-  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  scrollToElement(target);
   history.replaceState(null, '', '#' + id);
 }
 
@@ -123,11 +180,9 @@ function openControl(id) {
     });
   }
   card.open = true;
-  setTimeout(function () {
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    card.classList.add('control-flash');
-    setTimeout(function () { card.classList.remove('control-flash'); }, 1600);
-  }, 60);
+  scrollToElement(card);
+  card.classList.add('control-flash');
+  setTimeout(function () { card.classList.remove('control-flash'); }, 1600);
   return true;
 }
 

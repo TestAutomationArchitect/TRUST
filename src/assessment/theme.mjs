@@ -65,9 +65,9 @@ header { position: sticky; top: 0; z-index: 5;
   box-shadow: 0 2px 8px rgba(37,99,235,.4); }
 
 main { margin: 0 auto; padding: 24px 20px; }
-.section { margin: 48px 0 40px; scroll-margin-top: 140px; }
+.section { margin: 48px 0 40px; scroll-margin-top: var(--nav-offset, 140px); }
 .section-title { font-size: 14px; text-transform: uppercase; letter-spacing: .1em;
-  color: var(--muted); margin: 0 0 16px 2px; font-weight: 600; scroll-margin-top: 140px; }
+  color: var(--muted); margin: 0 0 16px 2px; font-weight: 600; scroll-margin-top: var(--nav-offset, 140px); }
 
 .rag-badge { display: inline-block; font-size: 14px; font-weight: 700; letter-spacing: .04em;
   padding: 10px 24px; border-radius: 10px; color: #fff; }
@@ -138,7 +138,7 @@ pre { background: var(--chip-bg); padding: 12px 14px; border-radius: 8px; font-s
 .callout-warn { background: rgba(217,119,6,.06); border-left-color: var(--warn); }
 .callout-bad { background: rgba(220,38,38,.06); border-left-color: var(--bad); }
 
-.cover { text-align: center; padding: 1.5rem 0; margin-bottom: 1.5rem; scroll-margin-top: 140px; }
+.cover { text-align: center; padding: 1.5rem 0; margin-bottom: 1.5rem; scroll-margin-top: var(--nav-offset, 140px); }
 .cover-meta { display: inline-block; text-align: left; background: var(--panel);
   border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 8px; }
 .cover-meta td { padding: 5px 10px; font-size: 13px; color: var(--muted); border-bottom: none; }
@@ -158,6 +158,9 @@ pre { background: var(--chip-bg); padding: 12px 14px; border-radius: 8px; font-s
    it rather than competing with it. */
 .rem-specifics { margin: 6px 0 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
 .rem-specifics li { margin: 2px 0; }
+
+.cat-header { scroll-margin-top: var(--nav-offset, 150px); }
+.finding-card { scroll-margin-top: var(--nav-offset, 150px); }
 
 .cat-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px 0; }
 .cat-jump { font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line);
@@ -348,7 +351,7 @@ tr.is-current td { background: rgba(37,99,235,.06); }
 .flt-count { font-size: 12px; color: var(--muted); white-space: nowrap; margin-left: auto; }
 
 /* ── Executive dashboard (not a collapsible card) ── */
-.dashboard { margin: 0 0 28px; scroll-margin-top: 150px; }
+.dashboard { margin: 0 0 28px; scroll-margin-top: var(--nav-offset, 150px); }
 .dashboard-head { display: flex; align-items: center; justify-content: space-between;
   gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
 .dashboard-title { margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase;
@@ -404,7 +407,7 @@ tr.is-current td { background: rgba(37,99,235,.06); }
 
 /* ── Collapsible section cards ── */
 .panel-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-  box-shadow: var(--box-shadow); overflow: hidden; margin: 0 0 14px; scroll-margin-top: 150px; }
+  box-shadow: var(--box-shadow); overflow: hidden; margin: 0 0 14px; scroll-margin-top: var(--nav-offset, 150px); }
 .panel-toggle { display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 16px 22px; cursor: pointer; user-select: none;
   border-bottom: 1px solid transparent; transition: background .2s, border-color .2s; }
