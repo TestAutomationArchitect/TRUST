@@ -25,6 +25,25 @@ system, and the IdP pack found a missing PKCE challenge.
 
 ### Added
 
+- **Probe tags and compliance mapping.** Every control carries tags derived from its category —
+  `owasp-api-1`…`owasp-api-10`, `authn`, `authz`, `ai`, `injection`, `hardening`, and its trust
+  domain. `trust run --tag owasp-api-2` reports only the controls in that group, and
+  `trust catalog --tag ai` lists them. Derived rather than stored per control, so one mapping
+  stays in step instead of ninety-seven drifting; `registerTags()` extends it for a partner
+  category.
+- **Setup problems are listed apart from security findings.** A control nobody configured is a
+  fact about the run, not about the target, and reading past "config.api.csrf.endpoint is not
+  defined" to find the security results made the list longer than the assessment. They now
+  appear in Scope under *Setup, not findings* — and still count against coverage, because an
+  unassessed control is exactly what coverage exists to report. A control that *cannot* apply
+  here stays with the findings, since nothing would fix it.
+- **Every warning says what to do next.** The three kinds need three different next steps —
+  re-run and verify, raise the budget and finish the sweep, or treat as hardening — and a
+  warning with no next step is a dead end for a reader.
+- **Run provenance in the report.** Generated timestamp with timezone, run IDs, commit and
+  branch, tool version, configuration hash, catalogue hash and size, and how each identity was
+  obtained. The two hashes are what make a trend comparison honest: change either and the runs
+  measure different things, which the report now says where a reader looks it up.
 - **`trust preflight` forecasts what will skip.** Every control that applies to a configured
   surface but is one setting short now appears before the run, naming the control and the key:
   *"API-CSRF — add api.csrf.endpoint"*. Declared isolation boundaries are forecast from their own

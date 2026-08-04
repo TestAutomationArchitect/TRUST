@@ -108,7 +108,14 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
   // no flag and no major version: one control tested in three profiles is one thing to read
   // about, with the profiles that confirmed it named on the card. The inventory stays
   // per-execution, because it is the searchable ledger and already carries a profile column.
-  const displayFindings = controls;
+  // A control nobody configured, and a probe module that crashed, are facts about the *setup* —
+  // not about the target. Leaving them in the findings list makes a reader scroll past
+  // "config.api.csrf.endpoint is not defined" looking for security results, and makes the list
+  // longer than the assessment actually is. They are listed separately, and still counted in
+  // coverage, because an unassessed control is exactly what coverage exists to report.
+  const isSetupIssue = (f) => (f.status === "skip" && f.skipKind === "unconfigured") || f.id.endsWith("-ABORTED");
+  const setupIssues = controls.filter(isSetupIssue);
+  const displayFindings = controls.filter((f) => !isSetupIssue(f));
   const displayFails = displayFindings.filter((f) => f.status === "fail");
   const displayWarns = displayFindings.filter((f) => f.status === "warn");
   const displaySkips = displayFindings.filter((f) => f.status === "skip");
@@ -606,7 +613,12 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
   // different facts about coverage. Counting them together is how a run reads as safer than it
   // is: the unconfigured ones are precisely the controls a team still owes itself.
   const skipsByKind = { unconfigured: 0, "not-applicable": 0, precondition: 0 };
-  for (const f of displaySkips) skipsByKind[f.skipKind ?? "unconfigured"] = (skipsByKind[f.skipKind ?? "unconfigured"] ?? 0) + 1;
+  // Every skipped control, including the unconfigured ones now listed under Setup. Coverage is
+  // the one place they must still be counted: moving them out of the findings list changes
+  // where they are *read*, never whether they count against what the run covered.
+  for (const f of controls.filter((c) => c.status === "skip")) {
+    skipsByKind[f.skipKind ?? "unconfigured"] = (skipsByKind[f.skipKind ?? "unconfigured"] ?? 0) + 1;
+  }
 
   const coverage = {
     assessed: assessedCount,
@@ -661,9 +673,30 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
     execSynopsis,
     rootCauseRows,
     trustVerifiedItems,
+    provenance: {
+      runIds: [...reports.values()].map((r) => r.runId).filter(Boolean),
+      generatedAt: first.generatedAt ?? null,
+      timezone: first.timezone ?? null,
+      commit: first.commit ?? null,
+      branch: first.branch ?? null,
+      ci: first.ci ?? false,
+      toolVersion: first.toolVersion ?? null,
+      configHash: first.configHash ?? null,
+      catalogHash: first.catalogHash ?? null,
+      catalogSize: first.catalogSize ?? null,
+      credentials: first.credentials ?? [],
+    },
     unitCounts,
     executions,
     controls,
+    setupIssues,
+    setupRows: setupIssues
+      .map(
+        (f) =>
+          `    <tr data-status="${esc(f.status)}"><td><span class="tag ${statusCls(f.status)}">${f.status.toUpperCase()}</span> <code>${esc(f.id)}</code></td>` +
+          `<td>${esc(f.title)}</td><td>${esc(String(f.evidence).replace(/^Skipped:\s*/, ""))}</td></tr>`,
+      )
+      .join("\n"),
     displayFindings,
     remediationGroups,
     profileRows,

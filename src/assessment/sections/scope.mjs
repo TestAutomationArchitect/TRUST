@@ -56,6 +56,19 @@ ${
 <ul style="margin:6px 0 0 18px;font-size:13px;line-height:1.7;">
 ${limitations.map((l) => `  <li>${esc(l)}</li>`).join("\n")}
 </ul>
-</div>`,
+</div>
+${
+  model.setupIssues?.length
+    ? `<div class="callout callout-warn" style="margin-top:18px;">
+<strong>Setup, not findings.</strong> ${model.setupIssues.length} control(s) were not assessed because this run was not configured to reach them. They are counted against coverage — an unassessed control is exactly what coverage exists to report — but they say nothing about the target, so they are listed here rather than among the security results. <code>trust preflight</code> reports these before a run.
+<table class="data-table" style="margin-top:10px;">
+  <thead><tr><th>Control</th><th>What it would test</th><th>What it needs</th></tr></thead>
+  <tbody>
+${model.setupRows}
+  </tbody>
+</table>
+</div>`
+    : ""
+}`,
   });
 }

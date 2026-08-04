@@ -13,7 +13,7 @@ import { resolveBudget, resolvedSections } from "./config.mjs";
 import { resolveAuth } from "./auth/index.mjs";
 import { exitCodeFor, summarize } from "./finding.mjs";
 import { buildRunReport, writeRunReport } from "./report.mjs";
-import { registerCatalogEntries, registerDomains, registerRootCauses, registerSummaryRules } from "./catalog.mjs";
+import { registerCatalogEntries, registerDomains, registerRootCauses, registerSummaryRules, tagsFor } from "./catalog.mjs";
 import { runWebProbes } from "./probes/web.mjs";
 import { runInjectionProbes } from "./probes/injection.mjs";
 import { runTokenProbes } from "./probes/token.mjs";
@@ -162,7 +162,7 @@ export function modulesFor(pattern) {
   return matches.length ? matches : null;
 }
 
-export async function runProfile({ config, profile, out = "", baseDir = process.cwd(), probes = [], onEvent = () => {}, validate = true, only = "" } = {}) {
+export async function runProfile({ config, profile, out = "", baseDir = process.cwd(), probes = [], onEvent = () => {}, validate = true, only = "", tag = "" } = {}) {
   if (!PROFILES[profile] && probes.length === 0 && !(config?.probes ?? []).length) {
     throw new Error(`Unknown profile "${profile}". Choose one of: ${Object.keys(PROFILES).join(", ")}`);
   }
@@ -234,7 +234,11 @@ export async function runProfile({ config, profile, out = "", baseDir = process.
 
   // Filtering happens after execution: a probe suite is the executable unit, so the honest
   // description is "these are the findings you asked to see", not "this is all that ran".
-  const reported = only ? findings.filter((f) => f.id === only || f.id.startsWith(only)) : findings;
+  let reported = only ? findings.filter((f) => f.id === only || f.id.startsWith(only)) : findings;
+  // A tag filter reports the controls belonging to a framework or theme — owasp-api-1, authn,
+  // ai. Applied after execution for the same reason as --only: a probe suite is the unit that
+  // runs, so the honest description is "these are the controls you asked to see".
+  if (tag) reported = reported.filter((f) => tagsFor(f.id, f.category).includes(tag.toLowerCase()));
 
   const report = buildRunReport({
     config,

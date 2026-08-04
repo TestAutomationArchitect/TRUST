@@ -489,3 +489,60 @@ test("a control whose profiles disagree is flagged, not silently reduced", () =>
   assert.match(model.findingCards, /kind-badge[^>]*>inconsistent</);
   assert.match(merged.evidence, /Across profiles: passive pass, authenticated warn/);
 });
+
+test("setup problems are listed apart from security findings, but still count against coverage", async () => {
+  const { skipped } = await import("../src/finding.mjs");
+  const model = buildModel(
+    new Map([
+      ["authenticated", profileRun("authenticated", [
+        control("API-CROSS-USER", "fail", "critical", "Authorization — API", "Authorization"),
+        skipped("API-CSRF", "Cross-origin state change", "config.api.csrf.endpoint is not defined"),
+        skipped("MOBILE-CERT-PINNING", "Pinning", "requires an instrumented device: install a proxy CA"),
+      ])],
+    ]),
+    {},
+  );
+
+  // "config.api.csrf.endpoint is not defined" is a fact about the setup, not about the target.
+  assert.deepEqual(model.setupIssues.map((f) => f.id), ["API-CSRF"]);
+  assert.ok(!model.displayFindings.some((f) => f.id === "API-CSRF"), "and it is not read among the security results");
+  // A control that cannot apply here is not a setup problem — nothing would fix it.
+  assert.ok(model.displayFindings.some((f) => f.id === "MOBILE-CERT-PINNING"));
+
+  // Moving it changes where it is read, never whether it counts.
+  assert.equal(model.coverage.skipsByKind.unconfigured, 1);
+  assert.equal(model.coverage.skipsByKind["not-applicable"], 1);
+  assert.match(model.setupRows, /API-CSRF/);
+});
+
+test("a warning always says what to do next", async () => {
+  const { inconclusive } = await import("../src/finding.mjs");
+  // Three kinds of warning need three different next steps, and a warning with none is a dead
+  // end for the reader.
+  assert.match(inconclusive("X", "t", "request failed").remediation, /Re-run once the precondition is met/);
+  assert.match(finding({ id: "X", title: "t", status: "warn", severity: "low", evidence: "e", warnKind: "partial" }).remediation, /Raise safety.maxRequests/);
+  assert.match(finding({ id: "X", title: "t", status: "warn", severity: "low", evidence: "e" }).remediation, /hardening rather than a defect/);
+  // A probe that supplied its own guidance keeps it.
+  assert.equal(finding({ id: "X", title: "t", status: "warn", severity: "low", evidence: "e", remediation: "Do the specific thing." }).remediation, "Do the specific thing.");
+});
+
+test("the report states the provenance a reader needs to trust a comparison", () => {
+  const run = { ...profileRun("authenticated", [control("API-CROSS-USER", "pass", "high")]), runId: "run-1", timezone: "Europe/London", commit: "abc1234567", branch: "main", toolVersion: "1.6.1", configHash: "cfg-9", catalogHash: "cat-9", catalogSize: 97 };
+  const html = buildReport(new Map([["authenticated", run]]), {});
+  for (const expected of ["run-1", "Europe/London", "abc1234567".slice(0, 10), "cfg-9", "cat-9", "97 controls"]) {
+    assert.ok(html.includes(expected), `provenance must carry ${expected}`);
+  }
+  // The two hashes are what make a trend comparison honest rather than an average of different
+  // things.
+  assert.match(html, /a different hash means a different scope/);
+});
+
+test("tags map a control to a framework, and filter a catalogue listing", async () => {
+  const { tagsFor, listCatalog } = await import("../src/catalog.mjs");
+  assert.ok(tagsFor("API-CROSS-USER").includes("owasp-api-1"));
+  assert.ok(tagsFor("JWT-ALG-NONE").includes("owasp-api-2"));
+  assert.ok(tagsFor("AGENT-TOOL-ABUSE").includes("ai"));
+  // Derived from the category, so one mapping stays in step rather than 97 drifting.
+  assert.deepEqual(tagsFor("API-CROSS-USER"), tagsFor("API-UNSCOPED-LIST"));
+  assert.ok(listCatalog().every((e) => Array.isArray(e.tags) && e.tags.length > 0), "every control carries at least one tag");
+});

@@ -286,10 +286,54 @@ export const FIX_ACTIONS = {
   "idp-client-config": "Correct the identity-provider app client configuration: PKCE with S256, authorisation-code flow only, and no parallel password grant.",
 };
 
+/**
+ * Tags, for filtering a run and for mapping controls to an external framework.
+ *
+ * Derived from the category rather than stored per control: a category already says what kind
+ * of control this is, and one mapping that stays in step beats ninety-seven that drift. A
+ * partner registering their own category can register its tags alongside.
+ */
+export const CATEGORY_TAGS = {
+  "Identity Spoofing": ["owasp-api-1", "authz", "identity"],
+  "Authorization — API": ["owasp-api-1", "owasp-api-3", "authz"],
+  "Authorization — Storage": ["owasp-api-1", "authz", "storage"],
+  "Data Minimisation": ["owasp-api-3", "data"],
+  Authentication: ["owasp-api-2", "authn"],
+  "Session Lifecycle": ["owasp-api-2", "authn", "session"],
+  "Token Hygiene": ["owasp-api-2", "authn", "token"],
+  "Resource Limits": ["owasp-api-4", "availability"],
+  "API Surface": ["owasp-api-9", "surface"],
+  "Error Handling": ["owasp-api-8", "disclosure"],
+  Injection: ["owasp-api-10", "injection", "input"],
+  "Web Hardening": ["hardening", "headers", "transport"],
+  Clickjacking: ["hardening", "browser"],
+  "Sensitive File Exposure": ["disclosure", "surface"],
+  "Mobile Platform": ["mobile"],
+  "Agent Authorization": ["ai", "authz", "agent"],
+  "Agent Hierarchy": ["ai", "agent", "boundary"],
+  "Agent Identity": ["ai", "identity"],
+  "Prompt Security": ["ai", "llm", "injection"],
+  "Information Disclosure": ["ai", "llm", "disclosure"],
+  "Test Integrity": ["assessment"],
+};
+
+/** Register tags for a category that ships outside this package. */
+export function registerTags(mapping) {
+  Object.assign(CATEGORY_TAGS, mapping);
+  return CATEGORY_TAGS;
+}
+
+/** Every tag on a control: its category's tags, plus its trust domain in slug form. */
+export function tagsFor(id, category) {
+  const cat = category ?? getTestMeta(id).category;
+  const domainTag = getDomain(cat).toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return [...new Set([...(CATEGORY_TAGS[cat] ?? []), domainTag])];
+}
+
 /** Every known test, flattened — used by `trust catalog` and for docs generation. */
 export function listCatalog() {
   return Object.entries(CATALOG)
-    .map(([id, meta]) => ({ id, ...meta, domain: getDomain(meta.category) }))
+    .map(([id, meta]) => ({ id, ...meta, domain: getDomain(meta.category), tags: tagsFor(id, meta.category) }))
     .sort((a, b) => a.domain.localeCompare(b.domain) || a.id.localeCompare(b.id));
 }
 

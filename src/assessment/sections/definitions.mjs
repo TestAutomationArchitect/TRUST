@@ -104,6 +104,24 @@ export function renderDefinitions(model) {
     ],
   ]);
 
+  const p = model.provenance ?? {};
+  const provenance = group("This run", [
+    ["Generated", `${esc(p.generatedAt ?? "—")}${p.timezone ? ` (${esc(p.timezone)})` : ""}`],
+    ["Run ID(s)", p.runIds?.length ? `<code>${p.runIds.map((id) => esc(id)).join("</code> <code>")}</code>` : "—"],
+    ["Source", `${p.commit ? `commit <code>${esc(p.commit.slice(0, 10))}</code>` : "commit unknown"}${p.branch ? ` on <code>${esc(p.branch)}</code>` : ""}${p.ci ? " (CI)" : ""}`],
+    ["Tool", `TRUST ${esc(p.toolVersion ?? "—")}`],
+    // The two hashes are what make a trend comparison honest: change either and the runs are
+    // measuring different things, which the Trends section states rather than silently averaging.
+    ["Configuration", p.configHash ? `<code>${esc(p.configHash)}</code> — a different hash means a different scope, and two runs across a change are not comparable` : "—"],
+    ["Control catalogue", p.catalogHash ? `<code>${esc(p.catalogHash)}</code>, ${p.catalogSize ?? "?"} controls` : "—"],
+    [
+      "Identities",
+      p.credentials?.length
+        ? p.credentials.map((c) => `${esc(c.name)} (${esc(c.strategy)}${c.expiresAt ? `, expires ${esc(c.expiresAt)}` : ""})`).join("; ")
+        : "supplied from the environment",
+    ],
+  ]);
+
   const methodology = group("Methodology", [
     ["Approach", "Authorised, non-destructive verification. Deterministic, repeatable and machine-parseable; no model judges a verdict."],
     [
@@ -122,7 +140,7 @@ export function renderDefinitions(model) {
     badge: `<span class="sc-chip">how to read this report</span>`,
     open: false,
     body: `<div class="glossary-grid">
-${[trustDomains, scoring, readinessGroup, impact, reading, statusScale, methodology].join("\n")}
+${[trustDomains, scoring, readinessGroup, impact, reading, statusScale, provenance, methodology].join("\n")}
 </div>`,
   });
 }

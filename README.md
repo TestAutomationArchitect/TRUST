@@ -70,7 +70,7 @@ Airgapped partners can install the checksummed tarball attached to each release:
 | `trust validate --config <path>` | Config and allowlist checks only — no network, no tokens, safe against a production config |
 | `trust tokens --config <path>` | Acquire every declared auth strategy once and write the tokens to a 0600 file, so a CI job signs in once |
 | `trust baseline --dir reports` | Record today's findings as accepted, so the gate means "nothing got worse" |
-| `trust catalog [--json]` | List every test with its category and trust domain |
+| `trust catalog [--json] [--tag <tag>]` | List every test with its category, trust domain and tags |
 
 ### As a library
 
@@ -173,7 +173,7 @@ trust/
 ├── scripts/
 │   ├── preflight.mjs         publish gate: no deps, no install scripts, no secrets shipped
 │   └── combined-report.mjs   deprecated shim → `trust report`
-├── test/                     213 tests over safety, auth, config, isolation, export, probes
+├── test/                     217 tests over safety, auth, config, isolation, export, probes
 └── reports/                  generated output (gitignored)
 ```
 
@@ -559,6 +559,19 @@ finish, so absence proves nothing) and `advisory` (present but weaker than it sh
 This is the answer to the failure mode that would discredit the tool fastest: a team configures
 half of it, sees green, and believes it tested something.
 
+### Filtering by tag
+
+Every control carries tags derived from its category — `owasp-api-1`…`owasp-api-10`, `authn`,
+`authz`, `ai`, `injection`, `hardening`, plus its trust domain:
+
+```bash
+trust catalog --tag owasp-api-2                 # which controls cover broken authentication
+trust run --config config/dev.json --profile all --tag owasp-api-2
+```
+
+Tags are derived from the category rather than stored per control, so one mapping stays in step
+instead of ninety-seven drifting apart. `registerTags()` extends it for a partner category.
+
 ### Debugging one control
 
 ```bash
@@ -681,7 +694,7 @@ Rules for probes: check prerequisites and SKIP (never crash) on missing config o
 npm test        # node --test "test/*.test.mjs"
 ```
 
-213 tests cover the safety guards (HTTPS-only, allowlist, per-run and per-suite caps, throttle, write/agent/denial guards, production block), the auth strategies (SigV4 against AWS's published test vector, the SRP group by its own defining property), config resolution and inheritance, declared isolation boundaries and conditional execution, the finding factory and every redaction rule, SARIF and JUnit output, baseline diffing, report construction, HTML escaping, scoring, domain ordering and catalogue integrity.
+217 tests cover the safety guards (HTTPS-only, allowlist, per-run and per-suite caps, throttle, write/agent/denial guards, production block), the auth strategies (SigV4 against AWS's published test vector, the SRP group by its own defining property), config resolution and inheritance, declared isolation boundaries and conditional execution, the finding factory and every redaction rule, SARIF and JUnit output, baseline diffing, report construction, HTML escaping, scoring, domain ordering and catalogue integrity.
 
 They are not shipped in the package — a partner installing TRUST should not pay for the test suite — so run them from a clone.
 

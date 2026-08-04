@@ -121,7 +121,7 @@ export function finding({ id, title, status, severity = "info", evidence = "", r
     // Bounded like evidence: remediation is rendered into HTML, XML and JSON, and an
     // unbounded string from a probe that interpolated a response body would bloat every one
     // of them.
-    remediation: status === "pass" ? "" : truncate(String(remediation ?? "")),
+    remediation: status === "pass" ? "" : truncate(String(remediation || (status === "warn" ? WARN_GUIDANCE[WARN_KINDS.includes(warnKind) ? warnKind : "advisory"] : ""))),
     // A probe may classify an individual finding, overriding the catalogue lookup. This is
     // what lets one probe report into two domains, and it is what survives into the run JSON
     // so the combined report does not have to re-derive it from a catalogue it cannot see.
@@ -189,6 +189,14 @@ export function classifySkip(reason) {
   for (const [pattern, kind] of SKIP_PATTERNS) if (pattern.test(reason)) return kind;
   return "unconfigured";
 }
+
+/** What to do about a warning, when the probe did not say. A warning with no next step is a
+ * reader's dead end, and three different kinds of warning need three different next steps. */
+const WARN_GUIDANCE = {
+  inconclusive: "The harness could not reach a verdict here. Re-run once the precondition is met, or verify this control by hand — it is unverified, not passing.",
+  partial: "The check did not complete, so the absence of a finding proves nothing. Raise safety.maxRequests (or set a per-suite budget) and re-run to get a conclusive answer.",
+  advisory: "The control is present but weaker than it should be. Nothing is broken today; treat this as hardening rather than a defect.",
+};
 
 /** A test that could not run. Severity is always info — a skip is not a verdict. */
 export function skipped(id, title, reason, kind = "") {

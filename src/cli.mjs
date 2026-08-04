@@ -44,7 +44,7 @@ const USAGE = `${TOOL.name} ${TOOL.version} — ${TOOL.tagline}
                 scaffold config/<env>.json, .env.example and an example probe
 
   trust run     --config <path> --profile <${Object.keys(PROFILES).join("|")}>
-                [--out reports] [--dry-run] [--quiet] [--only <ID>] [--verbose]
+                [--out reports] [--dry-run] [--quiet] [--only <ID>] [--tag <tag>] [--verbose]
                 [--baseline <file>] [--sarif <file>] [--junit <file>]
                 run a profile, write JSON + HTML, exit 2 on a blocking failure
                 (with --baseline, only on a blocking failure that is *new*).
@@ -78,8 +78,9 @@ const USAGE = `${TOOL.name} ${TOOL.version} — ${TOOL.tagline}
                 record today's findings as accepted, so the gate means "nothing got
                 worse" rather than "nothing is wrong"
 
-  trust catalog [--json] [--domain <trust domain>]
-                list every known test with its category, domain and purpose
+  trust catalog [--json] [--domain <trust domain>] [--tag <tag>]
+                list every known test with its category, domain, purpose and tags
+                (owasp-api-1…10, authn, authz, ai, injection, hardening, …)
 
   trust --version | --help
 `;
@@ -107,6 +108,7 @@ export function parseArgs(argv) {
     note: "",
     scoreBy: process.env.TRUST_SCORE_BY || "execution",
     only: "",
+    tag: "",
     verbose: false,
     noEnv: false,
     noTrends: false,
@@ -147,6 +149,7 @@ export function parseArgs(argv) {
       case "--junit": opts.junit = next(); break;
       case "--note": opts.note = next(); break;
       case "--only": case "--probe": opts.only = next(); break;
+      case "--tag": opts.tag = next(); break;
       case "--verbose": case "-v-": opts.verbose = true; break;
       case "--score-by": {
         opts.scoreBy = next();
@@ -245,6 +248,7 @@ async function commandRun(opts) {
   }
 
   if (opts.only) log(paint(90, `  only     ${opts.only} — modules that cannot produce this ID are skipped`));
+  if (opts.tag) log(paint(90, `  tag      ${opts.tag} — reporting only controls carrying this tag`));
 
   const result = await runProfile({
     config,
@@ -252,6 +256,7 @@ async function commandRun(opts) {
     out: opts.out || "reports",
     baseDir: path.dirname(path.resolve(opts.config)),
     only: opts.only,
+    tag: opts.tag,
     validate: false, // already validated, so advisories are not printed twice
     onEvent: (event) => {
       if (event.type === "request" && opts.verbose) {
@@ -455,6 +460,7 @@ async function commandBaseline(opts) {
 function commandCatalog(opts) {
   let entries = listCatalog();
   if (opts.domain) entries = entries.filter((e) => e.domain.toLowerCase() === opts.domain.toLowerCase());
+  if (opts.tag) entries = entries.filter((e) => e.tags.includes(opts.tag.toLowerCase()));
   if (opts.json) {
     console.log(JSON.stringify(entries, null, 2));
     return 0;
@@ -465,7 +471,7 @@ function commandCatalog(opts) {
       currentDomain = entry.domain;
       console.log(`\n${paint(1, currentDomain)}`);
     }
-    console.log(`  ${entry.id.padEnd(38)} ${paint(90, entry.category)}`);
+    console.log(`  ${entry.id.padEnd(38)} ${paint(90, entry.category.padEnd(24))} ${paint(90, entry.tags.join(" "))}`);
   }
   console.log(`\n${entries.length} tests${opts.domain ? ` in ${opts.domain}` : ""}`);
   return 0;
