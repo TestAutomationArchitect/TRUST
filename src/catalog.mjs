@@ -218,7 +218,9 @@ export function registerCatalogEntries(entries) {
   for (const [id, meta] of Object.entries(entries)) {
     if (!meta?.category) throw new TypeError(`Catalog entry ${id} needs a category`);
     if (!meta?.purpose) throw new TypeError(`Catalog entry ${id} needs a purpose`);
-    CATALOG[id] = { category: meta.category, purpose: meta.purpose };
+    // `supersedes` lets a probe written against the real schema absorb the generic built-in it
+    // replaces, so a team that keeps both does not read the same control twice.
+    CATALOG[id] = { category: meta.category, purpose: meta.purpose, ...(meta.supersedes ? { supersedes: [meta.supersedes].flat() } : {}) };
   }
   return CATALOG;
 }
@@ -316,6 +318,22 @@ export const CATEGORY_TAGS = {
   "Information Disclosure": ["ai", "llm", "disclosure"],
   "Test Integrity": ["assessment"],
 };
+
+/**
+ * Which control replaces which.
+ *
+ * A partner writing a probe against their real schema often covers exactly what a built-in
+ * covers generically — and keeping both is right, because the specific one is better evidence
+ * while the generic one still runs everywhere. Declaring `supersedes` says they are one control,
+ * so the report stops presenting two.
+ */
+export function supersededBy() {
+  const map = new Map();
+  for (const [id, meta] of Object.entries(CATALOG)) {
+    for (const replaced of meta.supersedes ?? []) map.set(replaced, id);
+  }
+  return map;
+}
 
 /** Register tags for a category that ships outside this package. */
 export function registerTags(mapping) {

@@ -116,6 +116,11 @@ export default defineProbe({
 });
 ```
 
+A probe that covers what a built-in already covers — written against your real schema rather
+than a generic pattern — can declare `supersedes: "API-USERID-SPOOF"` in its catalogue entry.
+The two then read as one control: yours keeps its identity, the worst outcome wins, and the
+built-in's result is kept in the evidence.
+
 `registerDomains()`, `registerRootCauses()` and `registerSummaryRules()` are available for tests that describe a new architectural area. `trust init` writes a working example probe to start from.
 
 ---
@@ -173,7 +178,7 @@ trust/
 ├── scripts/
 │   ├── preflight.mjs         publish gate: no deps, no install scripts, no secrets shipped
 │   └── combined-report.mjs   deprecated shim → `trust report`
-├── test/                     228 tests over safety, auth, config, isolation, export, probes
+├── test/                     230 tests over safety, auth, config, isolation, export, probes
 └── reports/                  generated output (gitignored)
 ```
 
@@ -694,7 +699,7 @@ Rules for probes: check prerequisites and SKIP (never crash) on missing config o
 npm test        # node --test "test/*.test.mjs"
 ```
 
-228 tests cover the safety guards (HTTPS-only, allowlist, per-run and per-suite caps, throttle, write/agent/denial guards, production block), the auth strategies (SigV4 against AWS's published test vector, the SRP group by its own defining property), config resolution and inheritance, declared isolation boundaries and conditional execution, the finding factory and every redaction rule, SARIF and JUnit output, baseline diffing, report construction, HTML escaping, scoring, domain ordering and catalogue integrity.
+230 tests cover the safety guards (HTTPS-only, allowlist, per-run and per-suite caps, throttle, write/agent/denial guards, production block), the auth strategies (SigV4 against AWS's published test vector, the SRP group by its own defining property), config resolution and inheritance, declared isolation boundaries and conditional execution, the finding factory and every redaction rule, SARIF and JUnit output, baseline diffing, report construction, HTML escaping, scoring, domain ordering and catalogue integrity.
 
 They are not shipped in the package — a partner installing TRUST should not pay for the test suite — so run them from a clone.
 

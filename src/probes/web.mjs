@@ -402,7 +402,12 @@ export async function runWebProbes(config, client) {
           title: "Server-side rate limiting is enforced",
           status: limited ? "pass" : "warn",
           severity: "medium",
-          evidence: `${burst} requests at the configured delay floor returned: ${statuses.join(", ")}`,
+          evidence:
+            `${burst} requests at the configured delay floor returned: ${statuses.join(", ")}
+` +
+            (limited
+              ? ""
+              : `A burst of ${burst} is below the threshold of most WAF rate rules, so this shows only that no limit applies at that volume — not that none exists. Raise web.rateLimitBurst (and the request budget) to probe closer to a real threshold, or confirm the rule directly.`),
           remediation: limited
             ? ""
             : "No 429 observed. A polite burst may sit under the threshold — confirm WAF/API-gateway throttling is configured, then re-test with an authorised load profile.",

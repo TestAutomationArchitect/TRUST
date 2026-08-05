@@ -7,7 +7,7 @@
  * new output (SARIF, a run-over-run delta, a dashboard feed) can reuse it unchanged.
  */
 
-import { FIX_ACTIONS, tagsFor, getTestMeta, getDomain, domainForId, ROOT_CAUSE_MAP, CATEGORY_ROOT_CAUSE_MAP, DOMAIN_ORDER, SUMMARY_RULES, CATALOG, listCatalog, matchAttackPaths } from "../catalog.mjs";
+import { FIX_ACTIONS, tagsFor, supersededBy, getTestMeta, getDomain, domainForId, ROOT_CAUSE_MAP, CATEGORY_ROOT_CAUSE_MAP, DOMAIN_ORDER, SUMMARY_RULES, CATALOG, listCatalog, matchAttackPaths } from "../catalog.mjs";
 import { computeScores } from "./scoring.mjs";
 import { esc, severityBadge, statusCls, ownerFor } from "./html.mjs";
 import { headline } from "../finding.mjs";
@@ -70,6 +70,41 @@ Across profiles: ${control.executions.map((e) => `${e.profile} ${e.status}`).joi
 }
 
 /**
+ * Fold a superseded control into the one that replaces it.
+ *
+ * A partner probe written against the real schema and the generic built-in it replaces are one
+ * control, tested twice. Keeping both executions is right — the specific one is better evidence
+ * — but reading both as separate controls double-counts the surface and, when they disagree,
+ * leaves a reader to work out which to believe. The replacement keeps its identity, the worst
+ * outcome wins, and the superseded result is stated in the evidence rather than dropped.
+ */
+export function mergeSuperseded(controls) {
+  const replacedBy = supersededBy();
+  if (replacedBy.size === 0) return controls;
+  const byId = new Map(controls.map((c) => [c.id, c]));
+  const absorbed = new Set();
+
+  for (const control of controls) {
+    const winnerId = replacedBy.get(control.id);
+    const winner = winnerId ? byId.get(winnerId) : null;
+    if (!winner) continue;
+    absorbed.add(control.id);
+    winner.supersedes = [...(winner.supersedes ?? []), control.id];
+    winner.profiles = [...new Set([...(winner.profiles ?? []), ...(control.profiles ?? [])])];
+    winner.executions = [...(winner.executions ?? []), ...(control.executions ?? [])];
+    const firstLine = String(control.evidence).split("\n")[0].slice(0, 160);
+    winner.evidence = [winner.evidence, "", `Also covered by ${control.id} (${control.status}), which this control supersedes: ${firstLine}`].join("\n");
+    if (STATUS_RANK[control.status] < STATUS_RANK[winner.status]) {
+      // The generic probe finding something the specific one missed is still a finding.
+      winner.status = control.status;
+      winner.observed = winner.observed || control.observed;
+      winner.inconsistent = true;
+    }
+  }
+  return controls.filter((c) => !absorbed.has(c.id));
+}
+
+/**
  * Derive the model.
  *
  *   title    overrides the assessment name taken from the run
@@ -98,7 +133,7 @@ export function buildModel(reports, { title = "", scoreBy = "execution" } = {}) 
   }
   // Every fragment below derives from allFindings, so choosing the unit here is what makes the
   // whole report — cards, scoring, coverage, remediation, retest, inventory — consistent.
-  const controls = collapseToControls(executions);
+  const controls = mergeSuperseded(collapseToControls(executions));
   const byControl = scoreBy === "control";
   const allFindings = byControl ? controls : executions;
   const unitCounts = { controls: controls.length, executions: executions.length, unit: byControl ? "control" : "execution" };

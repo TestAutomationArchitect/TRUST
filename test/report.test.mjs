@@ -657,3 +657,57 @@ test("the category index stays reachable while the cards are being read", () => 
   // Navigation belongs on screen, not in a PDF.
   assert.match(html, /\.cat-index \{ display: none; \}|, \.cat-index \{ display: none; \}/);
 });
+
+test("a probe written against the real schema absorbs the built-in it replaces", async () => {
+  const { registerCatalogEntries, supersededBy } = await import("../src/catalog.mjs");
+  registerCatalogEntries({
+    "GQL-USERID-SPOOF": {
+      category: "Identity Spoofing",
+      purpose: "Verify the AppSync resolver derives identity from the token rather than the payload.",
+      supersedes: "API-USERID-SPOOF",
+    },
+  });
+  assert.equal(supersededBy().get("API-USERID-SPOOF"), "GQL-USERID-SPOOF");
+
+  const model = buildModel(
+    new Map([
+      ["authenticated", profileRun("authenticated", [
+        // The generic built-in passes; the probe written against the real schema fails. Keeping
+        // both is right — the specific one is better evidence — but they are one control.
+        finding({ id: "API-USERID-SPOOF", title: "Identity comes from the token", status: "pass", severity: "critical", evidence: "generic payload ignored", category: "Identity Spoofing", domain: "Identity Binding" }),
+        finding({ id: "GQL-USERID-SPOOF", title: "Identity comes from the token", status: "fail", severity: "critical", evidence: "createConversation accepted userid=spoofed", remediation: "Use $ctx.identity", category: "Identity Spoofing", domain: "Identity Binding" }),
+      ])],
+    ]),
+    {},
+  );
+
+  const ids = model.displayFindings.map((f) => f.id);
+  assert.ok(ids.includes("GQL-USERID-SPOOF"));
+  assert.ok(!ids.includes("API-USERID-SPOOF"), "the superseded control is not read as a second control");
+
+  const merged = model.displayFindings.find((f) => f.id === "GQL-USERID-SPOOF");
+  assert.equal(merged.status, "fail");
+  // Absorbed, not dropped: the reader can still see what the generic probe concluded.
+  assert.match(merged.evidence, /Also covered by API-USERID-SPOOF \(pass\)/);
+  assert.deepEqual(merged.supersedes, ["API-USERID-SPOOF"]);
+});
+
+test("a superseded control that fails still fails, even when its replacement passed", async () => {
+  const { registerCatalogEntries } = await import("../src/catalog.mjs");
+  registerCatalogEntries({
+    "ACME-SPECIFIC": { category: "Authorization — API", purpose: "Org-specific cross-user check.", supersedes: "API-CROSS-USER" },
+  });
+  const model = buildModel(
+    new Map([
+      ["authenticated", profileRun("authenticated", [
+        finding({ id: "API-CROSS-USER", title: "Cross-user", status: "fail", severity: "high", evidence: "leaked", remediation: "scope it", category: "Authorization — API", domain: "Authorization" }),
+        finding({ id: "ACME-SPECIFIC", title: "Cross-user", status: "pass", severity: "high", evidence: "denied", category: "Authorization — API", domain: "Authorization" }),
+      ])],
+    ]),
+    {},
+  );
+  const merged = model.displayFindings.find((f) => f.id === "ACME-SPECIFIC");
+  // The generic probe finding something the specific one missed is still a finding.
+  assert.equal(merged.status, "fail");
+  assert.equal(merged.inconsistent, true);
+});

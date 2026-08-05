@@ -332,7 +332,14 @@ test("preflight forecasts which controls will skip, and the key that would reach
   assert.ok(forecast.some((d) => /ISO-INJECT: add successIndicators/.test(d)));
 
   // A fully configured surface says so rather than staying silent.
-  const complete = baseConfig({ storage: { baseUrl: "https://dev.example.com/files/", ownPrefix: "p/", signedUrl: "https://dev.example.com/files/x?sig=1" } });
+  const complete = baseConfig({
+    storage: {
+      baseUrl: "https://dev.example.com/files/",
+      ownPrefix: "p/",
+      signedUrl: "https://dev.example.com/files/x?sig=1",
+      targets: [{ name: "other-tenant", scope: "tenant", as: "A", key: "protected/other/" }],
+    },
+  });
   const done = await runPreflight(complete, { profile: "mobile", reach: false });
   assert.ok(done.checks.some((c) => c.name === "coverage forecast" && c.status === "ok"));
 });

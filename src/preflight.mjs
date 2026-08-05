@@ -283,6 +283,14 @@ function isolationChecks(config) {
  * to-do list rather than as a fault.
  */
 const COVERAGE_FORECAST = [
+  { key: "api.crossUser", when: (c) => section(c, "api").value?.endpoint, controls: ["API-CROSS-USER"], what: "a request that reads a record identity A owns, so identity B can be refused it" },
+  { key: "api.unscopedList", when: (c) => section(c, "api").value?.endpoint, controls: ["API-UNSCOPED-LIST"], what: "a list query plus ownerField and expectedOwner — without the expected owner the result cannot be judged and stays a warning" },
+  { key: "api.permissionMutation", when: (c) => section(c, "api").value?.endpoint, controls: ["API-PERMISSION-MUTATION"], what: "a permission-changing mutation an ordinary identity should be refused" },
+  { key: "api.useridSpoof", when: (c) => section(c, "api").value?.endpoint, controls: ["API-USERID-SPOOF"], what: "a request carrying a client-supplied identity field the server should ignore" },
+  { key: "api.session.logoutEndpoint", when: (c) => section(c, "api").value?.session?.verifyEndpoint, controls: ["SESSION-LOGOUT"], what: "the endpoint that ends a session, so a token can be re-checked after it" },
+  { key: "storage.targets", when: (c) => section(c, "storage").value?.baseUrl, controls: ["STORAGE-CROSS-TENANT", "STORAGE-CROSS-USER"], what: "objects owned by another tenant or user, and who should be refused them" },
+  { key: "agent.deniedAgentId", when: (c) => section(c, "agent").value?.runtimeEndpoint, controls: ["AGENT-DENIED-TARGET"], what: "an agent this identity is not entitled to invoke" },
+  { key: "mobile.deepLinkEndpoint", when: (c) => section(c, "mobile").value, controls: ["MOBILE-DEEP-LINK"], what: "the deep-link handler, to test that it validates its destination" },
   { key: "api.csrf.endpoint", when: (c) => section(c, "api").value?.endpoint, controls: ["API-CSRF"], what: "a state-changing endpoint a browser session can reach" },
   { key: "api.massAssignment.operation", when: (c) => section(c, "api").value?.endpoint, controls: ["API-MASS-ASSIGNMENT"], what: "a create/update operation whose response echoes the record" },
   { key: "api.session.verifyEndpoint", when: (c) => section(c, "api").value?.endpoint, controls: ["SESSION-LOGOUT", "SESSION-EXPIRED-TOKEN"], what: "an authenticated endpoint to re-check a token against" },
@@ -328,6 +336,44 @@ function isolationForecast(config) {
     }
   }
   return notes;
+}
+
+/**
+ * Request specs whose shape the API cannot answer.
+ *
+ * The false positive in 1.6.1 came from a GraphQL check sent as a REST call: the server rejected
+ * the request rather than the token, and the probe read that as a verdict. The shape is knowable
+ * before the run, so it is checked here rather than discovered from a wrong finding.
+ */
+function specShapeChecks(config) {
+  const { value: api, key } = section(config, "api");
+  if (!api?.endpoint) return [];
+  const isGraphql = (api.kind ?? "graphql") === "graphql";
+  const label = key ?? "api";
+  const results = [];
+
+  const specs = [
+    ["crossUser", api.crossUser],
+    ["unscopedList", api.unscopedList],
+    ["permissionMutation", api.permissionMutation],
+    ["useridSpoof", api.useridSpoof],
+    ["massAssignment.operation", api.massAssignment?.operation],
+    ...(api.extraChecks ?? []).map((spec, i) => [`extraChecks[${i}]`, spec]),
+  ].filter(([, spec]) => spec && typeof spec === "object");
+
+  for (const [name, spec] of specs) {
+    if (isGraphql && !spec.query && !spec.mutation) {
+      results.push(check(`${label}.${name}`, "fail", `no query for a GraphQL API — the request would be sent with an empty document and the server would reject its shape, not judge the control`));
+    } else if (!isGraphql && !spec.path && !spec.body) {
+      results.push(check(`${label}.${name}`, "warn", `no path or body for a REST API — the request would go to the base endpoint, which is probably not what this control means to test`));
+    }
+  }
+
+  if (api.unscopedList && !(api.unscopedList.expectedOwner ?? api.unscopedList.ownerField)) {
+    // Their run reported "0 owner values": the probe could not tell whose records came back.
+    results.push(check(`${label}.unscopedList`, "warn", "no ownerField/expectedOwner — the probe cannot tell whose records came back, so API-UNSCOPED-LIST stays a warning whatever the API does"));
+  }
+  return results;
 }
 
 /**
@@ -379,6 +425,7 @@ export async function runPreflight(config, { profile = "all", reach = true } = {
   checks.push(...authChecks(config));
   checks.push(...tokenChecks(config));
   checks.push(...isolationChecks(config));
+  checks.push(...specShapeChecks(config));
 
   // 4. Budget sanity: will the profile's cap cover the suites it runs?
   const budget = resolveBudget(config, profile);

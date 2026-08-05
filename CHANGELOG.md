@@ -9,8 +9,31 @@ API, and any change to a verdict is called out under **Verdict changes**.
 A false positive on the most serious control in the API suite, reported from a live run, and
 the reasoning error behind it.
 
+### Added
+
+- **`supersedes` in a catalogue entry.** A probe written against the real schema and the generic
+  built-in it replaces are one control, tested twice — keeping both is right, since the specific
+  one is better evidence, but reading both as separate controls double-counts the surface and
+  leaves a reader to decide which to believe when they disagree. Declaring
+  `supersedes: "API-USERID-SPOOF"` folds them: the replacement keeps its identity, the worst
+  outcome wins, and the superseded result is stated in the evidence rather than dropped.
+- **`trust preflight` checks request-spec shape.** A GraphQL config whose `crossUser` (or any
+  other spec) is written as a REST call would send an empty document and be rejected on shape,
+  which is the class of defect behind the false positive below. It is knowable before the run,
+  so it is reported there.
+- **The coverage forecast covers every config-driven control** — cross-user, unscoped list,
+  permission mutation, identity spoof, logout, storage targets, denied agent, deep links — so
+  the "controls we have not configured yet" list is something preflight prints rather than
+  something a run discovers.
+- **`API-UNSCOPED-LIST` without `ownerField`/`expectedOwner` is called out in preflight**, since
+  without them the probe cannot tell whose records came back and the result stays a warning
+  whatever the API does.
+
 ### Fixed
 
+- **`WEB-RATE-LIMIT` said what its burst proved.** Eight requests returning 200 shows only that
+  no limit applies at that volume, not that none exists — most WAF thresholds are higher. The
+  evidence now says so and names the knob.
 - **`SESSION-EXPIRED-TOKEN` reported a critical failure against an API that was behaving
   correctly.** Two defects compounded. The probe sent `{method:"GET", path}` at a GraphQL
   endpoint, which produces a body of `{"variables":{}}` — AppSync answered HTTP 400 about the
