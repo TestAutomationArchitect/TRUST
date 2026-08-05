@@ -236,6 +236,38 @@ node src/cli.mjs --config config/dev.json --profile all --dry-run
 
 ---
 
+### Before the run: `trust preflight`
+
+Seconds, no probing, and it answers three different questions:
+
+```bash
+trust preflight --config config/dev.json --profile all
+```
+
+**Will this run work?** Config validity, every configured endpoint inside `targets.allowedHosts`,
+token presence and expiry, two identities that are genuinely different principals, a request
+budget that covers the profile, TLS reachability. The expired-token *fixture* is judged by the
+opposite rule — expired is correct there, still-valid is the problem.
+
+**What will it not reach?** Every control that applies to a configured surface but is one setting
+short is named, with the key:
+
+```
+! API-CSRF — add api.csrf.endpoint (a state-changing endpoint a browser session can reach)
+! ISO-RECORD-OWNERSHIP: add queryA — a pinned record ID goes stale, and a placeholder skips
+```
+
+That list is the difference between agreeing coverage in advance and discovering it as a wall of
+skips afterwards.
+
+**Will the requests it sends make sense?** A spec written in the wrong shape — a GraphQL check
+declared as a REST call — sends a document the server rejects on shape, and a probe that reads
+"not a rejection" as a verdict then reports a finding about the request rather than the target.
+That is checkable before the run, so it is checked here.
+
+`trust validate` runs the same checks with no network at all, which makes it safe against a
+production config.
+
 ### Config resolution
 
 Sections resolve through conventional spellings, so an application that already calls its
@@ -276,6 +308,29 @@ Spend is recorded per suite in the run JSON, and an exhausted budget names the s
 consumed it. A sweep that could not complete reports what it managed — no checks performed
 is a **skip**, a partial sweep is a **warning** that says how far it got, and only a complete
 sweep can pass.
+
+### Session checks against a GraphQL API
+
+`api.session` re-checks a token after logout and with a deliberately expired one. Both send a
+request to `verifyEndpoint`, and for a GraphQL API that request needs a document:
+
+```jsonc
+"api": {
+  "kind": "graphql",
+  "session": {
+    "verifyEndpoint": "/graphql",
+    "verifyQuery": "query { me { id } }",   // defaults to `query { __typename }`
+    "logoutEndpoint": "/logout",
+    "expiredTokenEnv": "EXPIRED_TOKEN"
+  }
+}
+```
+
+Without one the check sends an empty document, the server rejects the *request shape*, and the
+probe never reaches the auth layer it is asking about. Both controls require positive evidence
+before they will claim anything: a response that answers normally is a failure, a refusal is a
+pass, and a 400, a 5xx or an unrelated error is reported as inconclusive with the reason. A
+critical finding never rests on the absence of a rejection.
 
 ### Testing that a mutation is refused
 
