@@ -16,7 +16,7 @@ import { section } from "./config.mjs";
 // Kept in step with package.json by a test, rather than read at runtime: a report states the
 // version that produced it, and reading the manifest on every import costs startup for a value
 // that changes once per release.
-export const TOOL = { name: "TRUST", version: "1.6.1", tagline: "Trust Reporting & Unified Security Testing" };
+export const TOOL = { name: "TRUST", version: "1.6.2", tagline: "Trust Reporting & Unified Security Testing" };
 
 /** A URL with its query string dropped — search params can carry tokens. */
 function safeEndpoint(url) {

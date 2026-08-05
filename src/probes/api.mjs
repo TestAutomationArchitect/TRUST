@@ -82,6 +82,51 @@ function deepFind(value, predicate, hits = []) {
   return hits;
 }
 
+/**
+ * The request a session check should send.
+ *
+ * A GraphQL endpoint needs a document; sending {method:"GET", path} at one produces a body of
+ * {"variables":{}}, which the server rejects as malformed before it ever looks at the token.
+ * That is not a verdict about the token, and reading it as one is how this probe reported a
+ * critical failure against an API that was behaving correctly.
+ */
+function sessionSpec(api, session) {
+  const isGraphql = (api.kind ?? "graphql") === "graphql";
+  return isGraphql
+    ? { query: session.verifyQuery ?? "query { __typename }", variables: session.verifyVariables ?? {} }
+    : { method: session.verifyMethod ?? "GET", path: session.verifyEndpoint };
+}
+
+/**
+ * Did the server *accept* this token?
+ *
+ * Positive evidence only. "Not a denial" is not acceptance: a 400 for a malformed body, a 500,
+ * or a gateway error all mean the question was never reached, and a critical finding must never
+ * rest on the absence of a rejection. Anything inconclusive says so.
+ */
+function tokenOutcome(result) {
+  if (isDenied(result)) return { verdict: "rejected" };
+  if (result.status >= 200 && result.status < 300) {
+    const errors = result.json?.errors ?? [];
+    // A GraphQL 200 carrying only auth errors is a rejection wearing a 200.
+    if (errors.some((e) => /unauthor|not authenticated|token has expired|expired|invalid.*token/i.test(e?.message ?? ""))) return { verdict: "rejected" };
+    if (errors.length && !hasData(result)) {
+      return {
+        verdict: "unclear",
+        why: `the endpoint answered HTTP ${result.status} with errors that are not about authentication: ${errors.map((e) => e?.message).filter(Boolean).join("; ").slice(0, 160)}`,
+      };
+    }
+    return { verdict: "accepted" };
+  }
+  return {
+    verdict: "unclear",
+    why:
+      result.status === 400
+        ? `the endpoint rejected the request itself with HTTP 400 before evaluating the token (${result.text.slice(0, 120)}). Set api.session.verifyQuery to a document this API accepts, so the check reaches the auth layer`
+        : `the endpoint answered HTTP ${result.status}, which is neither an acceptance nor a denial`,
+  };
+}
+
 export async function runApiProbes(config, client) {
   // The canonical section, resolved through conventional spellings — an app that calls it
   // "graphql" should not have to duplicate it under "api".
@@ -505,23 +550,38 @@ export async function runApiProbes(config, client) {
     out.push(skipped("SESSION-LOGOUT", "Tokens stop working after logout", "logout changes server state, so it requires safety.allowWrites"));
   } else {
     try {
-      const before = await execute(client, api, tokenA, { method: "GET", path: session.verifyEndpoint });
+      const before = await execute(client, api, tokenA, sessionSpec(api, session));
       await client.request(new URL(session.logoutEndpoint, api.endpoint).href, {
         method: session.logoutMethod ?? "POST",
         ...authInit(tokenA, { header: api.authHeader ?? "authorization", scheme: api.authScheme ?? "Bearer" }),
         write: true,
       });
-      const after = await execute(client, api, tokenA, { method: "GET", path: session.verifyEndpoint });
-      const stillValid = !isDenied(after) && !isDenied(before);
+      const after = await execute(client, api, tokenA, sessionSpec(api, session));
+      const beforeOutcome = tokenOutcome(before);
+      const afterOutcome = tokenOutcome(after);
+      // The test means nothing unless the token worked to begin with, and concludes only when
+      // the second answer is a real acceptance or a real denial.
+      const inconclusiveWhy =
+        beforeOutcome.verdict !== "accepted"
+          ? `the token was not accepted before logout either (${beforeOutcome.why ?? "it was refused"}), so this says nothing about logout`
+          : afterOutcome.verdict === "unclear"
+            ? afterOutcome.why
+            : null;
+      const stillValid = afterOutcome.verdict === "accepted";
       out.push(
         finding({
           id: "SESSION-LOGOUT",
           observed: "Tokens continue to work after logout",
           title: "Tokens stop working after logout",
-          status: stillValid ? "fail" : "pass",
+          status: inconclusiveWhy ? "warn" : stillValid ? "fail" : "pass",
+          warnKind: "inconclusive",
           severity: "high",
-          evidence: `Before logout: HTTP ${before.status}\nAfter logout: HTTP ${after.status}\n${after.text.slice(0, 300)}`,
-          remediation: stillValid
+          evidence:
+            `Before logout: HTTP ${before.status}\nAfter logout: HTTP ${after.status}\n${after.text.slice(0, 300)}` +
+            (inconclusiveWhy ? `\nInconclusive: ${inconclusiveWhy}` : ""),
+          remediation: inconclusiveWhy
+            ? "Point api.session.verifyEndpoint at an endpoint this identity can call successfully, and set api.session.verifyQuery for a GraphQL API, so the check exercises the session rather than the request shape."
+            : stillValid
             ? "Revoke the session server-side on logout — add the token to a denylist, or bind it to a session record that logout deletes. A stateless token that outlives its session cannot be withdrawn after theft."
             : "",
         }),
@@ -544,17 +604,35 @@ export async function runApiProbes(config, client) {
     );
   } else {
     try {
-      const result = await execute(client, api, expiredToken, { method: "GET", path: session.verifyEndpoint });
-      const rejected = isDenied(result);
+      const result = await execute(client, api, expiredToken, sessionSpec(api, session));
+      const outcome = tokenOutcome(result);
       out.push(
         finding({
           id: "SESSION-EXPIRED-TOKEN",
           observed: "An expired token is still accepted",
           title: "Expired tokens are rejected",
-          status: rejected ? "pass" : "fail",
+          // Positive evidence only. A critical finding must never rest on "the server did not
+          // say 401": a malformed request, a 500 or a gateway error each answer a different
+          // question, and reporting one as an accepted token is a false alarm on the most
+          // serious control in the suite.
+          status: outcome.verdict === "accepted" ? "fail" : outcome.verdict === "rejected" ? "pass" : "warn",
+          warnKind: "inconclusive",
           severity: "critical",
-          evidence: `A known-expired token against ${session.verifyEndpoint} → HTTP ${result.status}\n${result.text.slice(0, 300)}`,
-          remediation: rejected ? "" : "Validate exp on every request. An accepted expired token means revocation and session limits are not enforced at all.",
+          evidence:
+            `A known-expired token against ${session.verifyEndpoint} → HTTP ${result.status}\n${result.text.slice(0, 300)}\n` +
+            `Verdict basis: ${
+              outcome.verdict === "accepted"
+                ? "the endpoint answered the request, so the expired token was honoured"
+                : outcome.verdict === "rejected"
+                  ? "the endpoint refused the token"
+                  : outcome.why
+            }`,
+          remediation:
+            outcome.verdict === "accepted"
+              ? "Validate exp on every request. An accepted expired token means revocation and session limits are not enforced at all."
+              : outcome.verdict === "unclear"
+                ? "This is not a verdict about the token. Set api.session.verifyQuery (GraphQL) or api.session.verifyEndpoint (REST) to a request this API answers normally, so the expired token reaches the auth layer."
+                : "",
         }),
       );
     } catch (error) {

@@ -4,6 +4,31 @@ All notable changes are documented here. This project follows the semver contrac
 [README](README.md#versioning) — note that finding IDs and severities are part of the public
 API, and any change to a verdict is called out under **Verdict changes**.
 
+## [1.6.2] — 2026-08-04
+
+A false positive on the most serious control in the API suite, reported from a live run, and
+the reasoning error behind it.
+
+### Fixed
+
+- **`SESSION-EXPIRED-TOKEN` reported a critical failure against an API that was behaving
+  correctly.** Two defects compounded. The probe sent `{method:"GET", path}` at a GraphQL
+  endpoint, which produces a body of `{"variables":{}}` — AppSync answered HTTP 400 about the
+  *request shape*, never reaching the token. And the verdict inferred acceptance from the
+  absence of a 401, so "the server rejected my malformed request" became "the server accepts
+  expired tokens".
+
+  A GraphQL session check now sends a real document (`api.session.verifyQuery`, defaulting to
+  `query { __typename }`), and the verdict requires **positive evidence**: a 2xx that is not an
+  auth error is a failure, a refusal is a pass, and a 400, a 5xx or an unrelated GraphQL error
+  is inconclusive and says which. A critical finding must never rest on the absence of a
+  rejection.
+- **`SESSION-LOGOUT` had the same shape** and one more gap: it drew a conclusion even when the
+  token had not worked *before* logout, where the comparison means nothing. That is now stated
+  as inconclusive rather than reported as a pass.
+- **`trust preflight` forecasts the missing `api.session.verifyQuery`** for a GraphQL API, since
+  the malformed request was invisible until the run produced a false alarm.
+
 ## [1.6.1] — 2026-08-03
 
 Field fixes from the first full-battery run of 1.6.0 against a live target. That run exercised

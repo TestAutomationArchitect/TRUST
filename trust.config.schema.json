@@ -243,7 +243,7 @@
       "additionalProperties": true
     },
 
-    "api": { "type": "object", "description": "API and authorisation probes. Also accepted as: graphql, appSync, appsync, rest, backend." },
+    "api": { "type": "object", "description": "API and authorisation probes. Also accepted as: graphql, appSync, appsync, rest, backend. api.session takes verifyEndpoint, verifyQuery (GraphQL — a document the API answers normally, so a session check reaches the auth layer instead of being rejected as malformed), verifyMethod, logoutEndpoint and expiredTokenEnv." },
     "graphql": { "type": "object", "description": "Alias for api." },
     "appSync": { "type": "object", "description": "Alias for api." },
     "appsync": { "type": "object", "description": "Alias for api." },
