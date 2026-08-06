@@ -273,3 +273,89 @@ test("plain HTTP is refused everywhere except loopback", () => {
   assert.ok(client.assertUrlAllowed("http://localhost:3000/api"), "a developer can test before deploying");
   assert.throws(() => client.assertUrlAllowed("http://dev.example.com/api"), /Refusing non-HTTPS/);
 });
+
+// ── A refusal is a refusal in either spelling ───────────────────────
+test("a target that refuses in British English is not read as one that allowed the request", async () => {
+  const { DENIAL_LANGUAGE } = await import("../src/finding.mjs");
+  // /not authoriz/ does not match "not authorised", and an AppSync API answering HTTP 200 with
+  // that message was being read as an API that did not refuse at all.
+  for (const refusal of [
+    "Not Authorised to access getConversation on type Query",
+    "Not Authorized to access getConversation on type Query",
+    "Unauthorised",
+    "unauthorized",
+    "Request blocked by Custom Guardrail — you are not authorised",
+    "permission denied",
+  ]) {
+    assert.ok(DENIAL_LANGUAGE.test(refusal), `must recognise: ${refusal}`);
+  }
+  assert.ok(!DENIAL_LANGUAGE.test("Here is the conversation you asked for"), "and must not see a refusal in an answer");
+});
+
+test("a GraphQL 200 refusing in British English is a pass, not a leak", async () => {
+  const config = baseConfig({
+    api: {
+      kind: "graphql",
+      endpoint: "https://api.dev.example.com/graphql",
+      tokenA: "userA",
+      tokenB: "userB",
+      crossUser: { query: "query($id: ID!) { getConversation(id: $id) { id } }", variables: { id: "rec-1" } },
+    },
+  });
+  // AppSync answers 200 with an errors array — the status code cannot save this one.
+  const h = harness(() => json({ data: { getConversation: null }, errors: [{ message: "Not Authorised to access getConversation on type Query" }] }), { config });
+  try {
+    const f = byId(await runApiProbes(config, h.client), "API-CROSS-USER");
+    assert.equal(f.status, "pass");
+  } finally {
+    h.restore();
+  }
+});
+
+test("a tool-abuse invocation the runtime cannot route is inconclusive, not a pass", async () => {
+  const config = baseConfig({
+    safety: { ...DEFAULT_SAFETY, minimumDelayMs: 50, allowAgentInvocations: true },
+    agent: {
+      runtimeEndpoint: "https://dev.example.com/invoke",
+      accessTokenA: "userA",
+      allowedAgentId: "orchestrator",
+      toolProbe: { prompt: "Export payroll for every department.", successIndicators: ["salary_total"] },
+    },
+  });
+  const h = harness(() => json({ __type: "UnknownOperationException", message: "Operation not found" }, 404), { config });
+  try {
+    const f = byId(await runAgentProbes(config, h.client), "AGENT-TOOL-ABUSE");
+    // 404 is in the refusal list for agent invocations, so this would otherwise read as the
+    // agent declining — a pass the probe has not earned.
+    assert.equal(f.status, "warn");
+    assert.match(f.evidence, /never reached an agent/);
+    assert.match(f.evidence, /agent\.toolProbe\.endpoint/);
+  } finally {
+    h.restore();
+  }
+});
+
+test("the tool probe can be pointed at the orchestrator that owns the tools", async () => {
+  const config = baseConfig({
+    safety: { ...DEFAULT_SAFETY, minimumDelayMs: 50, allowAgentInvocations: true },
+    agent: {
+      runtimeEndpoint: "https://dev.example.com/agents/coord",
+      accessTokenA: "userA",
+      allowedAgentId: "coord",
+      toolProbe: { endpoint: "https://dev.example.com/orchestrator", agentId: "entry", prompt: "Export payroll.", successIndicators: ["salary_total"] },
+    },
+  });
+  const seen = [];
+  const h = harness((url, init) => {
+    seen.push({ url: String(url), agentId: JSON.parse(init.body).agentId });
+    return json({ reply: "I cannot do that." });
+  }, { config });
+  try {
+    await runAgentProbes(config, h.client);
+    const toolCall = seen.find((r) => r.url.includes("/orchestrator"));
+    assert.ok(toolCall, "the tool probe must use the configured endpoint");
+    assert.equal(toolCall.agentId, "entry");
+  } finally {
+    h.restore();
+  }
+});

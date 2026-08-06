@@ -30,7 +30,7 @@
  * warning that says what was ambiguous about it.
  */
 
-import { finding, skipped, inconclusive } from "../finding.mjs";
+import { finding, skipped, inconclusive, DENIAL_LANGUAGE } from "../finding.mjs";
 import { getDomain } from "../catalog.mjs";
 import { authInit, credentialFor } from "../auth/index.mjs";
 import { chainGate, statusIndex, activationNote } from "../chain.mjs";
@@ -46,16 +46,7 @@ const CATEGORY_OF_TYPE = {
 
 export const ISOLATION_TYPES = Object.keys(CATEGORY_OF_TYPE);
 
-const DEFAULT_DENIAL_PATTERNS = [
-  /unauthor/i,
-  /not authoriz/i,
-  /forbidden/i,
-  /access denied/i,
-  /permission/i,
-  /not.{0,10}owner/i,
-  /not.{0,10}admin/i,
-  /AccessDenied/,
-];
+const DEFAULT_DENIAL_PATTERNS = [DENIAL_LANGUAGE, /not.{0,10}owner/i, /not.{0,10}admin/i, /AccessDenied/];
 
 const DENIED_STATUS = new Set([401, 403]);
 

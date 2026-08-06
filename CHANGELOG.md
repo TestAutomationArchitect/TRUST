@@ -4,6 +4,26 @@ All notable changes are documented here. This project follows the semver contrac
 [README](README.md#versioning) — note that finding IDs and severities are part of the public
 API, and any change to a verdict is called out under **Verdict changes**.
 
+## [1.6.3] — 2026-08-06
+
+Two defects found in a second live run, both of the same shape as the one 1.6.2 fixed: a probe
+drawing a conclusion the evidence did not support.
+
+### Fixed
+
+- **A refusal written in British English was not recognised as a refusal.** `/not authoriz/`
+  does not match "not authorised", so an API answering HTTP 200 with
+  `{"errors":[{"message":"Not Authorised to access …"}]}` — which is what AppSync does — was read
+  as one that had not refused at all. The consequences differed by probe: an agent that correctly
+  declined could be reported as having bypassed its ACL, and an isolation control that held could
+  be reported as unverified. Every probe now shares one `DENIAL_LANGUAGE` vocabulary that spells
+  it both ways.
+- **`AGENT-TOOL-ABUSE` reported a runtime 404 as though the agent had declined.** A 404 is in the
+  refusal vocabulary for agent invocations, so an invocation the runtime could not route read as
+  a pass the probe had not earned. An unroutable invocation is now inconclusive and says so; and
+  `agent.toolProbe.endpoint` / `.agentId` let the probe address the orchestrator that owns the
+  tools, which is not always the agent endpoint the other probes use.
+
 ## [1.6.2] — 2026-08-04
 
 A false positive on the most serious control in the API suite, reported from a live run, and

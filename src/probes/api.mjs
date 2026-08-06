@@ -5,7 +5,7 @@
  * GraphQL API, a REST API, or both. Every isolation test needs two identities.
  */
 
-import { finding, skipped, inconclusive, sweepVerdict } from "../finding.mjs";
+import { finding, skipped, inconclusive, sweepVerdict, DENIAL_LANGUAGE } from "../finding.mjs";
 import { section } from "../config.mjs";
 import { authInit, credentialFor } from "../auth/index.mjs";
 
@@ -55,8 +55,8 @@ function isDenied({ status, text, json }) {
   if (isThrottled({ status, text })) return false;
   if (status === 401 || status === 403 || status === 404) return true;
   const errors = json?.errors ?? [];
-  if (errors.length && /unauthor|not authoriz|forbidden|access denied|permission/i.test(JSON.stringify(errors))) return true;
-  if (!json && /unauthor|forbidden|access denied/i.test(text)) return true;
+  if (errors.length && DENIAL_LANGUAGE.test(JSON.stringify(errors))) return true;
+  if (!json && DENIAL_LANGUAGE.test(text)) return true;
   return false;
 }
 

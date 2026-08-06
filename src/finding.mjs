@@ -235,6 +235,17 @@ export function sweepVerdict({ hits, performed, planned }) {
   return performed < planned ? "partial" : "complete";
 }
 
+/**
+ * How a target says no.
+ *
+ * Spelled both ways deliberately: `/not authoriz/` does not match "not authorised", and an
+ * AppSync API that refuses in British English was being read as one that did not refuse at all.
+ * A refusal misread as an answer is the same class of false positive as inferring acceptance
+ * from the absence of a rejection — so the vocabulary lives in one place, and every probe
+ * shares it.
+ */
+export const DENIAL_LANGUAGE = /unauthori[sz]|not authori[sz]|access denied|forbidden|not permitted|no permission|permission denied|not allowed|denied by policy/i;
+
 /** Unique marker used by injection and leak probes. */
 export function canary(label = "CANARY") {
   return `${label}-${crypto.randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase()}`;
