@@ -6,8 +6,19 @@ API, and any change to a verdict is called out under **Verdict changes**.
 
 ## [1.6.3] — 2026-08-06
 
-Two defects found in a second live run, both of the same shape as the one 1.6.2 fixed: a probe
+A cross-service token control, and two defects found in a second live run, both of the same shape as the one 1.6.2 fixed: a probe
 drawing a conclusion the evidence did not support.
+
+### Added
+
+- **`JWT-AUDIENCE-*` — cross-service token reuse.** A token is minted for one service; a
+  neighbour that verifies only the signature accepts it too, which is how an over-shared machine
+  credential becomes access nobody granted. `api.crossService` names a token and an endpoint that
+  should refuse it. Declared rather than inferred — only the operator knows which credential
+  belongs to which surface, and crossing them on a guess would produce findings about a boundary
+  nobody drew. Crossing a token with the audience it already names is refused as a test rather
+  than reported as a pass, an unroutable endpoint is inconclusive, and with several audiences in
+  play and no spec declared the skip says what to write.
 
 ### Fixed
 

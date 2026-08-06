@@ -76,6 +76,7 @@ export const CATALOG = {
   "JWT-SIGNATURE": { category: "Token Hygiene", purpose: "Verify the API rejects a token whose signature does not verify, confirming signatures are checked rather than claims merely being read." },
   "JWT-CLAIMS-TAMPERED": { category: "Token Hygiene", purpose: "Verify the API rejects claims the signature does not cover, so privileges cannot be self-granted by editing a token body." },
   "JWT-UNKNOWN-KID": { category: "Token Hygiene", purpose: "Verify the API rejects a token naming a signing key absent from the issuer's published key set, rather than falling back to a default key." },
+  "JWT-AUDIENCE-BINDING": { category: "Token Hygiene", purpose: "Validate that cross-service token reuse can be tested — a token is minted for one service, and a neighbour that ignores the audience claim accepts it too." },
   "JWT-VERIFICATION": { category: "Token Hygiene", purpose: "Summarise whether token verification is enforced at all — every authorisation result in a run depends on the identity being trustworthy." },
 
   // ── Request forgery and over-binding ────────────────────────────────
@@ -142,6 +143,13 @@ const PREFIX_RULES = [
     meta: (id) => ({
       category: "Sensitive File Exposure",
       purpose: `Verify that ${id.slice("WEB-EXPOSED-".length).toLowerCase().replace(/-/g, "/")} is not publicly accessible, preventing credential or source-code leakage.`,
+    }),
+  },
+  {
+    prefix: "JWT-AUDIENCE-",
+    meta: (id) => ({
+      category: "Token Hygiene",
+      purpose: `Test whether ${id.slice("JWT-AUDIENCE-".length)} accepts a token minted for a different service — a service that verifies only the signature accepts every token its issuer ever produced.`,
     }),
   },
   {

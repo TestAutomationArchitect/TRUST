@@ -171,14 +171,14 @@ trust/
 │       ├── api.mjs           cross-user, scoping, RBAC, identity, inventory, query cost, session
 │       ├── storage.mjs       object-store isolation, public access
 │       ├── idp.mjs           OIDC discovery, PKCE, implicit flow, native password grant
-│       ├── jwt.mjs           server-side token validation — alg:none, signature, kid, claims
+│       ├── jwt.mjs           server-side token validation — alg:none, signature, kid, claims, audience
 │       ├── isolation.mjs     declared authorisation boundaries — five types, config-driven
 │       ├── agent.mjs         AI runtime: hierarchy, sessions, memory, injection, disclosure
 │       └── mobile.mjs        deep links, app-site association, attestation
 ├── scripts/
 │   ├── preflight.mjs         publish gate: no deps, no install scripts, no secrets shipped
 │   └── combined-report.mjs   deprecated shim → `trust report`
-├── test/                     234 tests over safety, auth, config, isolation, export, probes
+├── test/                     239 tests over safety, auth, config, isolation, export, probes
 └── reports/                  generated output (gitignored)
 ```
 
@@ -308,6 +308,29 @@ Spend is recorded per suite in the run JSON, and an exhausted budget names the s
 consumed it. A sweep that could not complete reports what it managed — no checks performed
 is a **skip**, a partial sweep is a **warning** that says how far it got, and only a complete
 sweep can pass.
+
+### Cross-service token reuse
+
+A token is minted *for* something. A service that verifies only the signature accepts every
+token its issuer ever produced — including the one belonging to a neighbour with different
+privileges, which is how an over-shared machine credential becomes access nobody granted.
+
+```jsonc
+"api": {
+  "crossService": [
+    { "name": "agent-token-at-api", "token": "agentUser",
+      "endpoint": "https://api.dev.example.com/graphql",
+      "query": "query { __typename }", "expectedAudience": "bt-ask-api" },
+    { "name": "api-token-at-agent", "token": "apiUser",
+      "endpoint": "https://agents.dev.example.com/invoke", "agentInvocation": true }
+  ]
+}
+```
+
+Each spec names a token and an endpoint that should **not** accept it. Declared rather than
+inferred, because only you know which credential belongs to which surface — crossing them on a
+guess would produce findings about a boundary nobody drew. Crossing a token with the audience it
+already names is refused as a test: it would pass correctly and prove nothing.
 
 ### Session checks against a GraphQL API
 
@@ -754,7 +777,7 @@ Rules for probes: check prerequisites and SKIP (never crash) on missing config o
 npm test        # node --test "test/*.test.mjs"
 ```
 
-234 tests cover the safety guards (HTTPS-only, allowlist, per-run and per-suite caps, throttle, write/agent/denial guards, production block), the auth strategies (SigV4 against AWS's published test vector, the SRP group by its own defining property), config resolution and inheritance, declared isolation boundaries and conditional execution, the finding factory and every redaction rule, SARIF and JUnit output, baseline diffing, report construction, HTML escaping, scoring, domain ordering and catalogue integrity.
+239 tests cover the safety guards (HTTPS-only, allowlist, per-run and per-suite caps, throttle, write/agent/denial guards, production block), the auth strategies (SigV4 against AWS's published test vector, the SRP group by its own defining property), config resolution and inheritance, declared isolation boundaries and conditional execution, the finding factory and every redaction rule, SARIF and JUnit output, baseline diffing, report construction, HTML escaping, scoring, domain ordering and catalogue integrity.
 
 They are not shipped in the package — a partner installing TRUST should not pay for the test suite — so run them from a clone.
 

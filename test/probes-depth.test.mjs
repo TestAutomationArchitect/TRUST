@@ -359,3 +359,105 @@ test("the tool probe can be pointed at the orchestrator that owns the tools", as
     h.restore();
   }
 });
+
+// ── Audience binding across services ────────────────────────────────
+const audJwt = (aud) =>
+  `${Buffer.from(JSON.stringify({ alg: "RS256", kid: "k" })).toString("base64url")}.${Buffer.from(JSON.stringify({ sub: "svc", aud })).toString("base64url")}.sig`;
+
+function audienceHarness(handler, spec, { strategies = 2 } = {}) {
+  const config = baseConfig({
+    api: {
+      kind: "graphql",
+      endpoint: "https://api.dev.example.com/graphql",
+      tokenA: "apiUser",
+      crossService: spec ? [spec] : undefined,
+    },
+    auth: { strategies: Object.fromEntries(["apiUser", "agentUser"].slice(0, strategies).map((n) => [n, { type: "static", tokenEnv: n }])) },
+  });
+  const client = new SafeHttpClient(config);
+  client.credentials = new Map([
+    ["apiUser", { name: "apiUser", kind: "bearer", token: audJwt("bt-ask-api"), scheme: "Bearer", type: "static" }],
+    ["agentUser", { name: "agentUser", kind: "bearer", token: audJwt("bt-ask-agent"), scheme: "Bearer", type: "static" }],
+  ]);
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), auth: init?.headers?.authorization });
+    return handler(String(url), init);
+  };
+  return { config, client, calls, restore: () => { globalThis.fetch = original; } };
+}
+
+test("a service that answers another service's token fails audience binding", async () => {
+  const spec = { name: "agent-token-at-api", token: "agentUser", endpoint: "https://api.dev.example.com/graphql", query: "query { __typename }", expectedAudience: "bt-ask-api" };
+  const h = audienceHarness(() => json({ data: { __typename: "Query" } }), spec);
+  try {
+    const f = byId(await runJwtProbes(h.config, h.client), "JWT-AUDIENCE-AGENT-TOKEN-AT-API");
+    assert.equal(f.status, "fail");
+    assert.equal(f.severity, "high");
+    // The evidence has to name the audience the token actually carried, or a reader cannot
+    // tell which boundary was crossed.
+    assert.match(f.evidence, /aud=bt-ask-agent/);
+    assert.match(f.remediation, /Validate the `aud` claim/);
+  } finally {
+    h.restore();
+  }
+});
+
+test("a service that refuses it passes, in either spelling", async () => {
+  const spec = { name: "agent-token-at-api", token: "agentUser", endpoint: "https://api.dev.example.com/graphql", query: "query { __typename }" };
+
+  const refusedByStatus = audienceHarness(() => new Response("Unauthorized", { status: 401 }), spec);
+  try {
+    assert.equal(byId(await runJwtProbes(refusedByStatus.config, refusedByStatus.client), "JWT-AUDIENCE-AGENT-TOKEN-AT-API").status, "pass");
+  } finally {
+    refusedByStatus.restore();
+  }
+
+  // AppSync answers 200 with an errors array, in British English.
+  const refusedInBody = audienceHarness(() => json({ errors: [{ message: "Not Authorised — token audience mismatch" }] }), spec);
+  try {
+    assert.equal(byId(await runJwtProbes(refusedInBody.config, refusedInBody.client), "JWT-AUDIENCE-AGENT-TOKEN-AT-API").status, "pass");
+  } finally {
+    refusedInBody.restore();
+  }
+});
+
+test("crossing a token with the audience it already names proves nothing, and says so", async () => {
+  const spec = { name: "self", token: "apiUser", endpoint: "https://api.dev.example.com/graphql", expectedAudience: "bt-ask-api", query: "query { __typename }" };
+  const h = audienceHarness(() => json({ data: {} }), spec);
+  try {
+    const f = byId(await runJwtProbes(h.config, h.client), "JWT-AUDIENCE-SELF");
+    assert.equal(f.status, "skip");
+    assert.equal(f.skipKind, "precondition");
+    assert.match(f.evidence, /which is the audience this endpoint expects/);
+    // And it must not spend a request establishing that.
+    assert.ok(!h.calls.some((c) => c.auth?.includes(audJwt("bt-ask-api"))) || h.calls.length < 6);
+  } finally {
+    h.restore();
+  }
+});
+
+test("with several audiences in play and no spec, the skip names what to declare", async () => {
+  const h = audienceHarness(() => json({ data: { __typename: "Query" } }), null);
+  try {
+    const f = byId(await runJwtProbes(h.config, h.client), "JWT-AUDIENCE-BINDING");
+    assert.equal(f.status, "skip");
+    assert.match(f.evidence, /tokens for 2 different audiences/);
+    assert.match(f.evidence, /bt-ask-api/);
+  } finally {
+    h.restore();
+  }
+});
+
+test("an unroutable endpoint is inconclusive, not a refusal", async () => {
+  const spec = { name: "wrong-path", token: "agentUser", endpoint: "https://api.dev.example.com/graphql", query: "query { __typename }" };
+  const h = audienceHarness(() => json({ message: "Not Found" }, 404), spec);
+  try {
+    const f = byId(await runJwtProbes(h.config, h.client), "JWT-AUDIENCE-WRONG-PATH");
+    assert.equal(f.status, "warn");
+    assert.match(f.evidence, /did not route this request/);
+  } finally {
+    h.restore();
+  }
+});

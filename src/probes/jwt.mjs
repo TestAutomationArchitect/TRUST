@@ -18,9 +18,9 @@
  */
 
 import crypto from "node:crypto";
-import { finding, skipped, inconclusive } from "../finding.mjs";
+import { finding, skipped, inconclusive, DENIAL_LANGUAGE } from "../finding.mjs";
 import { section } from "../config.mjs";
-import { authInit, credentialFor } from "../auth/index.mjs";
+import { authInit, credentialFor, jwtClaims } from "../auth/index.mjs";
 import { decodeJwt } from "./token.mjs";
 
 const b64 = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -174,6 +174,121 @@ export async function runJwtProbes(config, client) {
       );
     } catch (error) {
       out.push(inconclusive(forgery.id, forgery.title, `Request failed: ${error.message}`));
+    }
+  }
+
+  // ── Audience binding across services ──────────────────────────────
+  //
+  // A token is minted *for* something. The `aud` claim says which service, and a service that
+  // does not check it will happily accept a token issued for its neighbour — which is how a
+  // compromised or over-shared machine credential turns into access it was never granted. This
+  // is the multi-service half of verification: the forgeries above ask whether a token is
+  // genuine, and this asks whether a genuine token is genuine *here*.
+  //
+  // Declared rather than inferred, because only the operator knows which credential belongs to
+  // which surface, and sending the wrong token at the wrong endpoint on a guess would produce
+  // findings about a boundary nobody drew.
+  const crossService = api.crossService ?? config.tokens?.crossService ?? [];
+  if (crossService.length === 0) {
+    // Worth naming when there is more than one identity to cross, and silent when there is not.
+    const identities = [...(client.credentials?.values() ?? [])].filter((c) => c.kind === "bearer" && !c.error);
+    const audiences = new Set(identities.map((c) => jwtClaims(c.token)?.aud).filter(Boolean).map(String));
+    out.push(
+      skipped(
+        "JWT-AUDIENCE-BINDING",
+        "A token is only accepted by the service it was issued for",
+        audiences.size > 1
+          ? `config.api.crossService is not defined, and this run holds tokens for ${audiences.size} different audiences (${[...audiences].join(", ")}) — declare which token should be refused by which endpoint and this control can be tested`
+          : "config.api.crossService is not defined (name a token and an endpoint it should NOT be accepted by)",
+      ),
+    );
+  } else {
+    for (const spec of crossService) {
+      const id = `JWT-AUDIENCE-${String(spec.name ?? "CROSS").toUpperCase().replace(/[^A-Z0-9]+/g, "-")}`;
+      const title = spec.title ?? `A token issued for another service is refused by ${spec.name ?? spec.endpoint}`;
+      const { credential, reason } = credentialFor(client, spec, "token");
+      if (!credential) {
+        out.push(skipped(id, title, reason));
+        continue;
+      }
+      if (credential.kind !== "bearer") {
+        out.push(skipped(id, title, `${spec.token} is a ${credential.kind} credential — audience binding applies to bearer tokens`, "not-applicable"));
+        continue;
+      }
+
+      const claims = jwtClaims(credential.token);
+      const audience = claims?.aud ? [claims.aud].flat().join(", ") : null;
+      // A token that already names this service is the wrong instrument for the test: it would
+      // be accepted correctly, and reporting that as a pass would be meaningless.
+      if (spec.expectedAudience && audience && [claims.aud].flat().map(String).includes(String(spec.expectedAudience))) {
+        out.push(
+          skipped(
+            id,
+            title,
+            `${spec.token} carries aud=${audience}, which is the audience this endpoint expects — crossing it proves nothing. Point this spec at a token minted for a different service.`,
+            "precondition",
+          ),
+        );
+        continue;
+      }
+
+      try {
+        const isGraphql = spec.query || (spec.kind ?? "") === "graphql";
+        const auth = authInit(credential, {
+          header: spec.authHeader ?? api.authHeader ?? "authorization",
+          scheme: spec.authScheme ?? api.authScheme ?? "Bearer",
+          headers: { "content-type": "application/json", ...(spec.headers ?? {}) },
+        });
+        const response = await client.request(spec.endpoint, {
+          ...auth,
+          method: spec.method ?? (isGraphql || spec.body ? "POST" : "GET"),
+          body: isGraphql ? JSON.stringify({ query: spec.query ?? "query { __typename }", variables: spec.variables ?? {} }) : spec.body ? JSON.stringify(spec.body) : undefined,
+          // An agent runtime counts as an invocation whoever is asking.
+          agentInvocation: spec.agentInvocation === true,
+        });
+        const text = (await response.text()).slice(0, 400);
+
+        // Positive evidence, as everywhere else: an answer is acceptance, a refusal is the
+        // control holding, and anything else settles nothing.
+        const refusedIt = refused(response.status, text) || DENIAL_LANGUAGE.test(text);
+        const answered = response.status >= 200 && response.status < 300 && !DENIAL_LANGUAGE.test(text);
+        const unroutable = response.status === 404 || /UnknownOperation|not found/i.test(text);
+
+        out.push(
+          finding({
+            id,
+            title,
+            observed: `A token issued for ${audience ?? "another service"} was accepted by ${spec.name ?? spec.endpoint}`,
+            status: answered && !unroutable ? "fail" : refusedIt && !unroutable ? "pass" : "warn",
+            warnKind: "inconclusive",
+            severity: spec.severity ?? "high",
+            category: "Token Hygiene",
+            domain: "Authentication",
+            fix: "token-verification",
+            evidence:
+              `${spec.token} (aud=${audience ?? "absent"}) sent to ${spec.endpoint} → HTTP ${response.status}
+${text}
+` +
+              `Verdict basis: ${
+                unroutable
+                  ? "the endpoint did not route this request, so nothing was learned about audience binding"
+                  : answered
+                    ? "the service answered a token that was not issued for it"
+                    : refusedIt
+                      ? "the service refused a token issued for another audience"
+                      : "the response was neither an answer nor a refusal"
+              }`,
+            remediation:
+              answered && !unroutable
+                ? "Validate the `aud` claim against this service's own identifier, and reject anything else. A service that verifies only the signature accepts every token the same issuer ever minted — including one belonging to a neighbour with different privileges."
+                : unroutable
+                  ? "Point this spec at an endpoint that answers for a valid caller, so the refusal being tested is an authorisation decision rather than a routing error."
+                  : "",
+          }),
+        );
+      } catch (error) {
+        out.push(inconclusive(id, title, `Request failed: ${error.message}`));
+      }
     }
   }
 

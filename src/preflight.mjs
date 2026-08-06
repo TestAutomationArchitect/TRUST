@@ -291,6 +291,7 @@ const COVERAGE_FORECAST = [
   { key: "storage.targets", when: (c) => section(c, "storage").value?.baseUrl, controls: ["STORAGE-CROSS-TENANT", "STORAGE-CROSS-USER"], what: "objects owned by another tenant or user, and who should be refused them" },
   { key: "agent.deniedAgentId", when: (c) => section(c, "agent").value?.runtimeEndpoint, controls: ["AGENT-DENIED-TARGET"], what: "an agent this identity is not entitled to invoke" },
   { key: "mobile.deepLinkEndpoint", when: (c) => section(c, "mobile").value, controls: ["MOBILE-DEEP-LINK"], what: "the deep-link handler, to test that it validates its destination" },
+  { key: "api.crossService", when: (c) => section(c, "api").value?.endpoint && Object.keys(c.auth?.strategies ?? {}).length > 1, controls: ["JWT-AUDIENCE-*"], what: "a token and an endpoint it should NOT be accepted by — machine credentials are minted per service, and a service that ignores the audience claim accepts its neighbour's" },
   { key: "api.csrf.endpoint", when: (c) => section(c, "api").value?.endpoint, controls: ["API-CSRF"], what: "a state-changing endpoint a browser session can reach" },
   { key: "api.massAssignment.operation", when: (c) => section(c, "api").value?.endpoint, controls: ["API-MASS-ASSIGNMENT"], what: "a create/update operation whose response echoes the record" },
   { key: "api.session.verifyEndpoint", when: (c) => section(c, "api").value?.endpoint, controls: ["SESSION-LOGOUT", "SESSION-EXPIRED-TOKEN"], what: "an authenticated endpoint to re-check a token against" },
